@@ -1,9 +1,26 @@
 // curl-scraping-approach.js - Use curl to bypass blocking
 const { exec } = require('child_process');
 const { promisify } = require('util');
-const fetch = require('node-fetch');
+const https = require('https');
+const http = require('http');
 
 const execAsync = promisify(exec);
+
+function fetchUrl(url) {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith('https:') ? https : http;
+    const req = client.get(url, { timeout: 10000 }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve(data));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+  });
+}
 
 async function curlScrapingApproach() {
   console.log("🔄 Trying curl-based scraping approach...");
@@ -105,8 +122,7 @@ async function parseHtmlForTableData(html) {
       try {
         console.log(`🔄 Trying to fetch data from: ${endpoint}`);
         const fullUrl = endpoint.startsWith('http') ? endpoint : `https://www.southernamateurleague.co.uk/${endpoint}`;
-        const response = await fetch(fullUrl);
-        const data = await response.text();
+        const data = await fetchUrl(fullUrl);
         console.log(`✅ Got ${data.length} characters from ${endpoint}`);
         
         // Try to parse as JSON

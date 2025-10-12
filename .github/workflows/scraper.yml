@@ -1,4 +1,4 @@
-name: Daily League Scraper
+name: Dorkinians Table Scraper
 
 on:
   schedule:

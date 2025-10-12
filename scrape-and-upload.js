@@ -4,7 +4,10 @@ const puppeteer = require("puppeteer");
 const { google } = require("googleapis");
 
 async function scrapeTable() {
-  const browser = await puppeteer.launch({ headless: "new" });
+  const browser = await puppeteer.launch({ 
+    headless: "new",
+    args: ['--no-sandbox', '--disable-setuid-sandbox'] // Required for GitHub Actions
+  });
   const page = await browser.newPage();
   await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
     waitUntil: "networkidle2",

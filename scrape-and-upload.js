@@ -4,14 +4,40 @@ const puppeteer = require("puppeteer");
 const { google } = require("googleapis");
 
 async function scrapeTable() {
+  console.log("🌐 Launching browser...");
   const browser = await puppeteer.launch({ 
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox'] // Required for GitHub Actions
   });
+  
+  console.log("📄 Creating new page...");
   const page = await browser.newPage();
-  await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
-    waitUntil: "networkidle2",
-  });
+  
+  // Set longer timeout and better error handling
+  page.setDefaultTimeout(60000); // 60 seconds
+  page.setDefaultNavigationTimeout(60000); // 60 seconds
+  
+  console.log("🔗 Navigating to website...");
+  try {
+    await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
+      waitUntil: "networkidle2",
+      timeout: 60000
+    });
+    console.log("✅ Page loaded successfully");
+  } catch (error) {
+    console.log("⚠️ First attempt failed, trying with domcontentloaded...");
+    try {
+      await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
+        waitUntil: "domcontentloaded",
+        timeout: 30000
+      });
+      console.log("✅ Page loaded with domcontentloaded");
+    } catch (secondError) {
+      console.error("❌ Failed to load page after retry:", secondError.message);
+      await browser.close();
+      throw secondError;
+    }
+  }
 
   const tables = await page.$$("table");
   const leagueTable = tables[1]; // Second table (index 1)

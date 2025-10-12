@@ -242,12 +242,24 @@ async function uploadToSheet(data) {
 async function runScraper() {
   try {
     // Run network diagnostics first
-    await testNetworkConnectivity();
+    const networkStatus = await testNetworkConnectivity();
     
-  const data = await scrapeTable();
+    // Check if website is blocking us (HTTP 406)
+    if (networkStatus && networkStatus.targetSiteStatus === 406) {
+      console.log("🚨 Website is blocking GitHub Actions (HTTP 406) - using fallback data immediately");
+      const fallbackSuccess = await uploadFallbackData();
+      if (fallbackSuccess) {
+        console.log("✅ Fallback data uploaded successfully");
+        return;
+      } else {
+        throw new Error("Fallback data upload failed");
+      }
+    }
+    
+    const data = await scrapeTable();
     console.log(`📊 Scraped ${data.length} rows from the first table`);
     console.log(`📋 Table headers: ${data[0] ? data[0].join(' | ') : 'None'}`);
-  await uploadToSheet(data);
+    await uploadToSheet(data);
   } catch (error) {
     console.error("❌ Main scraping failed:", error.message);
     

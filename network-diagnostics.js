@@ -28,15 +28,27 @@ async function testNetworkConnectivity() {
     }
   ];
 
+  const results = {};
+
   for (const test of tests) {
     try {
       console.log(`🧪 Testing ${test.name}...`);
       const result = await testUrl(test.url, test.timeout);
       console.log(`✅ ${test.name}: ${result.status} (${result.time}ms)`);
+      
+      // Store results for return
+      if (test.name === "Target Website") {
+        results.targetSiteStatus = result.status;
+      }
+      if (test.name === "Target Page") {
+        results.targetPageStatus = result.status;
+      }
     } catch (error) {
       console.log(`❌ ${test.name}: ${error.message}`);
     }
   }
+  
+  return results;
 }
 
 function testUrl(url, timeout) {

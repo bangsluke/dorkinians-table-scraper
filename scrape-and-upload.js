@@ -4,6 +4,9 @@ const puppeteer = require("puppeteer");
 const { google } = require("googleapis");
 const { testNetworkConnectivity } = require("./network-diagnostics");
 const { tryAlternativeAccess } = require("./alternative-access-methods");
+const { curlScrapingApproach } = require("./curl-scraping-approach");
+const { proxyServiceApproach } = require("./proxy-service-approach");
+const { dynamicContentScraper } = require("./dynamic-content-scraper");
 
 async function scrapeTable() {
   console.log("🌐 Launching browser...");
@@ -245,9 +248,40 @@ async function runScraper() {
     
     // Check if website is blocking us (HTTP 406)
     if (networkStatus && networkStatus.targetSiteStatus === 406) {
-      console.log("🚨 Website is blocking GitHub Actions (HTTP 406) - trying alternative access methods...");
+      console.log("🚨 Website is blocking GitHub Actions (HTTP 406) - trying multiple bypass methods...");
       
-      // Try alternative access methods
+      // Try dynamic content scraper first (handles JavaScript loading)
+      console.log("🔄 Trying dynamic content scraper...");
+      const dynamicData = await dynamicContentScraper();
+      if (dynamicData && dynamicData.length > 0) {
+        console.log(`📊 Successfully scraped ${dynamicData.length} rows using dynamic content scraper`);
+        console.log(`📋 Table headers: ${dynamicData[0] ? dynamicData[0].join(' | ') : 'None'}`);
+        await uploadToSheet(dynamicData);
+        return;
+      }
+      
+      // Try curl approach
+      console.log("🔄 Trying curl-based scraping...");
+      const curlData = await curlScrapingApproach();
+      if (curlData && curlData.length > 0) {
+        console.log(`📊 Successfully scraped ${curlData.length} rows using curl`);
+        console.log(`📋 Table headers: ${curlData[0] ? curlData[0].join(' | ') : 'None'}`);
+        await uploadToSheet(curlData);
+        return;
+      }
+      
+      // Try proxy service approach
+      console.log("🔄 Trying proxy service approach...");
+      const proxyData = await proxyServiceApproach();
+      if (proxyData && proxyData.length > 0) {
+        console.log(`📊 Successfully scraped ${proxyData.length} rows using proxy service`);
+        console.log(`📋 Table headers: ${proxyData[0] ? proxyData[0].join(' | ') : 'None'}`);
+        await uploadToSheet(proxyData);
+        return;
+      }
+      
+      // Try alternative access methods as last resort
+      console.log("🔄 Trying alternative access methods...");
       const alternativeData = await tryAlternativeAccess();
       if (alternativeData && alternativeData.length > 0) {
         console.log(`📊 Successfully scraped ${alternativeData.length} rows using alternative method`);
@@ -255,22 +289,53 @@ async function runScraper() {
         await uploadToSheet(alternativeData);
         return;
       } else {
-        throw new Error("All alternative access methods failed - website is completely blocked");
+        throw new Error("All bypass methods failed - website is completely blocked");
       }
     }
     
-    const data = await scrapeTable();
+  const data = await scrapeTable();
     console.log(`📊 Scraped ${data.length} rows from the first table`);
     console.log(`📋 Table headers: ${data[0] ? data[0].join(' | ') : 'None'}`);
-    await uploadToSheet(data);
+  await uploadToSheet(data);
   } catch (error) {
     console.error("❌ Main scraping failed:", error.message);
     
     // Check if it's a network/timeout issue
     if (error.message.includes('timeout') || error.message.includes('Navigation timeout')) {
-      console.log("🔄 Network issue detected, trying alternative access methods...");
+      console.log("🔄 Network issue detected, trying multiple bypass methods...");
       
-      // Try alternative access methods
+      // Try dynamic content scraper first
+      console.log("🔄 Trying dynamic content scraper...");
+      const dynamicData = await dynamicContentScraper();
+      if (dynamicData && dynamicData.length > 0) {
+        console.log(`📊 Successfully scraped ${dynamicData.length} rows using dynamic content scraper`);
+        console.log(`📋 Table headers: ${dynamicData[0] ? dynamicData[0].join(' | ') : 'None'}`);
+        await uploadToSheet(dynamicData);
+        return;
+      }
+      
+      // Try curl approach
+      console.log("🔄 Trying curl-based scraping...");
+      const curlData = await curlScrapingApproach();
+      if (curlData && curlData.length > 0) {
+        console.log(`📊 Successfully scraped ${curlData.length} rows using curl`);
+        console.log(`📋 Table headers: ${curlData[0] ? curlData[0].join(' | ') : 'None'}`);
+        await uploadToSheet(curlData);
+        return;
+      }
+      
+      // Try proxy service approach
+      console.log("🔄 Trying proxy service approach...");
+      const proxyData = await proxyServiceApproach();
+      if (proxyData && proxyData.length > 0) {
+        console.log(`📊 Successfully scraped ${proxyData.length} rows using proxy service`);
+        console.log(`📋 Table headers: ${proxyData[0] ? proxyData[0].join(' | ') : 'None'}`);
+        await uploadToSheet(proxyData);
+        return;
+      }
+      
+      // Try alternative access methods as last resort
+      console.log("🔄 Trying alternative access methods...");
       const alternativeData = await tryAlternativeAccess();
       if (alternativeData && alternativeData.length > 0) {
         console.log(`📊 Successfully scraped ${alternativeData.length} rows using alternative method`);
@@ -278,7 +343,7 @@ async function runScraper() {
         await uploadToSheet(alternativeData);
         return;
       } else {
-        throw new Error("All access methods failed - unable to scrape data");
+        throw new Error("All bypass methods failed - unable to scrape data");
       }
     }
     

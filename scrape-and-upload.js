@@ -3,8 +3,7 @@ require("dotenv").config();
 const puppeteer = require("puppeteer");
 const { google } = require("googleapis");
 const { testNetworkConnectivity } = require("./network-diagnostics");
-const { uploadFallbackData } = require("./fallback-data-source");
-const { alternativeScrapingApproach } = require("./alternative-scraping-approach");
+const { tryAlternativeAccess } = require("./alternative-access-methods");
 
 async function scrapeTable() {
   console.log("🌐 Launching browser...");
@@ -246,13 +245,17 @@ async function runScraper() {
     
     // Check if website is blocking us (HTTP 406)
     if (networkStatus && networkStatus.targetSiteStatus === 406) {
-      console.log("🚨 Website is blocking GitHub Actions (HTTP 406) - using fallback data immediately");
-      const fallbackSuccess = await uploadFallbackData();
-      if (fallbackSuccess) {
-        console.log("✅ Fallback data uploaded successfully");
+      console.log("🚨 Website is blocking GitHub Actions (HTTP 406) - trying alternative access methods...");
+      
+      // Try alternative access methods
+      const alternativeData = await tryAlternativeAccess();
+      if (alternativeData && alternativeData.length > 0) {
+        console.log(`📊 Successfully scraped ${alternativeData.length} rows using alternative method`);
+        console.log(`📋 Table headers: ${alternativeData[0] ? alternativeData[0].join(' | ') : 'None'}`);
+        await uploadToSheet(alternativeData);
         return;
       } else {
-        throw new Error("Fallback data upload failed");
+        throw new Error("All alternative access methods failed - website is completely blocked");
       }
     }
     
@@ -265,27 +268,21 @@ async function runScraper() {
     
     // Check if it's a network/timeout issue
     if (error.message.includes('timeout') || error.message.includes('Navigation timeout')) {
-      console.log("🔄 Network issue detected, trying alternative approach...");
+      console.log("🔄 Network issue detected, trying alternative access methods...");
       
-      // Try alternative scraping approach first
-      const alternativeSuccess = await alternativeScrapingApproach();
-      if (alternativeSuccess) {
-        console.log("✅ Alternative approach worked!");
-        return; // Success with alternative method
-      }
-      
-      console.log("❌ Alternative approach failed, trying fallback data...");
-      const fallbackSuccess = await uploadFallbackData();
-      
-      if (fallbackSuccess) {
-        console.log("✅ Fallback data uploaded successfully");
-        return; // Don't re-throw, we handled it with fallback
+      // Try alternative access methods
+      const alternativeData = await tryAlternativeAccess();
+      if (alternativeData && alternativeData.length > 0) {
+        console.log(`📊 Successfully scraped ${alternativeData.length} rows using alternative method`);
+        console.log(`📋 Table headers: ${alternativeData[0] ? alternativeData[0].join(' | ') : 'None'}`);
+        await uploadToSheet(alternativeData);
+        return;
       } else {
-        console.log("❌ Fallback data also failed");
+        throw new Error("All access methods failed - unable to scrape data");
       }
     }
     
-    // Re-throw the original error if all fallbacks failed
+    // Re-throw the original error if all methods failed
     throw error;
   }
 }

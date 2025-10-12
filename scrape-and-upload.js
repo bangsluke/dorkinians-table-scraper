@@ -5,21 +5,42 @@ const { google } = require("googleapis");
 
 async function scrapeTable() {
   console.log("🌐 Launching browser...");
-  const browser = await puppeteer.launch({ 
+  console.log("🔧 Environment info:");
+  console.log("- Node version:", process.version);
+  console.log("- Platform:", process.platform);
+  console.log("- Architecture:", process.arch);
+  console.log("- CI:", process.env.CI);
+  console.log("- GITHUB_ACTIONS:", process.env.GITHUB_ACTIONS);
+  
+  const browser = await puppeteer.launch({
     headless: "new",
     args: [
-      '--no-sandbox', 
+      '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
       '--no-zygote',
-      '--disable-gpu'
+      '--disable-gpu',
+      '--disable-web-security',
+      '--disable-features=VizDisplayCompositor',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding'
     ]
   });
   
   console.log("📄 Creating new page...");
   const page = await browser.newPage();
+  
+  // Stealth techniques to avoid bot detection
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+  await page.setViewport({ width: 1920, height: 1080 });
+  
+  // Add random delay to appear more human-like
+  const delay = Math.random() * 2000 + 1000; // 1-3 seconds
+  console.log(`⏱️ Adding ${Math.round(delay)}ms delay to appear human-like`);
+  await new Promise(resolve => setTimeout(resolve, delay));
   
   // Force timeout settings - multiple approaches for GitHub Actions compatibility
   page.setDefaultTimeout(120000); // 2 minutes
@@ -35,6 +56,31 @@ async function scrapeTable() {
   
   console.log("🔗 Navigating to website...");
   let pageLoaded = false;
+  
+  // Monitor for blocking responses and network issues
+  page.on('response', response => {
+    if (response.status() === 403) {
+      console.log('🚨 403 Forbidden - Possible IP blocking');
+    } else if (response.status() === 429) {
+      console.log('🚨 429 Too Many Requests - Rate limiting detected');
+    } else if (response.status() === 503) {
+      console.log('🚨 503 Service Unavailable - Server overload or maintenance');
+    } else if (response.status() >= 400) {
+      console.log(`⚠️ HTTP ${response.status()} - ${response.url()}`);
+    }
+  });
+  
+  // Monitor for console errors
+  page.on('console', msg => {
+    if (msg.type() === 'error') {
+      console.log('🚨 Console error:', msg.text());
+    }
+  });
+  
+  // Monitor for page errors
+  page.on('pageerror', error => {
+    console.log('🚨 Page error:', error.message);
+  });
   
   // Try multiple approaches with optimized timeouts
   const attempts = [
@@ -77,9 +123,18 @@ async function scrapeTable() {
         break;
       } else {
         console.log(`⚠️ Insufficient tables found (${tables.length}), trying next strategy...`);
+        
+        // Check for blocking messages in page content
+        const bodyText = await page.evaluate(() => document.body.innerText.toLowerCase());
+        if (bodyText.includes('blocked') || bodyText.includes('access denied') || 
+            bodyText.includes('forbidden') || bodyText.includes('captcha')) {
+          console.log("🚨 Blocking message detected in page content");
+          console.log("Page content preview:", bodyText.substring(0, 200));
+        }
+        
         // Wait a bit more for dynamic content
         if (attempt.waitUntil !== "networkidle2") {
-          await page.waitForTimeout(3000);
+          await new Promise(resolve => setTimeout(resolve, 3000));
         }
       }
     } catch (error) {
@@ -93,8 +148,25 @@ async function scrapeTable() {
   }
   
   if (!pageLoaded) {
+    console.log("❌ All loading attempts failed");
+    console.log("🔍 Attempting to get page content for debugging...");
+    
+    try {
+      const pageContent = await page.evaluate(() => document.body.innerText);
+      console.log("📄 Page content preview:", pageContent.substring(0, 500));
+      
+      const pageTitle = await page.title();
+      console.log("📄 Page title:", pageTitle);
+      
+      const currentUrl = page.url();
+      console.log("🔗 Current URL:", currentUrl);
+      
+    } catch (debugError) {
+      console.log("❌ Could not get page content:", debugError.message);
+    }
+    
     await browser.close();
-    throw new Error("Failed to load page after all attempts");
+    throw new Error("Failed to load page after all attempts - check logs for details");
   }
 
   console.log("🔍 Looking for tables...");

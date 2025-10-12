@@ -19,9 +19,38 @@ const FALLBACK_DATA = [
 async function uploadFallbackData() {
   console.log("🔄 Using fallback data due to website inaccessibility...");
   
+  // Debug environment variables
+  console.log("🔍 Environment check:");
+  console.log("- GOOGLE_CLIENT_EMAIL:", process.env.GOOGLE_CLIENT_EMAIL ? "Set" : "Not set");
+  console.log("- GOOGLE_PRIVATE_KEY:", process.env.GOOGLE_PRIVATE_KEY ? "Set" : "Not set");
+  console.log("- SHEET_ID:", process.env.SHEET_ID ? "Set" : "Not set");
+  
+  if (!process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY || !process.env.SHEET_ID) {
+    console.log("❌ Missing required environment variables for fallback");
+    return false;
+  }
+  
+  // Handle different private key formats
+  let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+  
+  // Remove quotes if present
+  if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+    privateKey = privateKey.slice(1, -1);
+  }
+  
+  // Handle different newline formats
+  if (privateKey.includes('\\n')) {
+    privateKey = privateKey.replace(/\\n/g, '\n');
+  }
+  
+  console.log("🔑 Private key processing:");
+  console.log("- Original length:", process.env.GOOGLE_PRIVATE_KEY.length);
+  console.log("- Processed length:", privateKey.length);
+  console.log("- Contains actual newlines:", privateKey.includes('\n'));
+  
   const auth = new google.auth.JWT({
     email: process.env.GOOGLE_CLIENT_EMAIL,
-    key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    key: privateKey,
     scopes: ["https://www.googleapis.com/auth/spreadsheets"]
   });
 

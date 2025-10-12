@@ -4,6 +4,7 @@ const puppeteer = require("puppeteer");
 const { google } = require("googleapis");
 const { testNetworkConnectivity } = require("./network-diagnostics");
 const { uploadFallbackData } = require("./fallback-data-source");
+const { alternativeScrapingApproach } = require("./alternative-scraping-approach");
 
 async function scrapeTable() {
   console.log("🌐 Launching browser...");
@@ -199,7 +200,7 @@ async function scrapeTable() {
     const rows = Array.from(table.querySelectorAll("tr"));
     return rows.map(row =>
       Array.from(row.querySelectorAll("td, th")).map(cell => cell.innerText.trim())
-    );
+  );
   });
 
   await browser.close();
@@ -207,9 +208,22 @@ async function scrapeTable() {
 }
 
 async function uploadToSheet(data) {
+  // Handle different private key formats for GitHub Actions
+  let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+  
+  // Remove quotes if present
+  if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+    privateKey = privateKey.slice(1, -1);
+  }
+  
+  // Handle different newline formats
+  if (privateKey.includes('\\n')) {
+    privateKey = privateKey.replace(/\\n/g, '\n');
+  }
+  
   const auth = new google.auth.JWT({
     email: process.env.GOOGLE_CLIENT_EMAIL,
-    key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    key: privateKey,
     scopes: ["https://www.googleapis.com/auth/spreadsheets"]
   });
 
@@ -230,16 +244,25 @@ async function runScraper() {
     // Run network diagnostics first
     await testNetworkConnectivity();
     
-    const data = await scrapeTable();
+  const data = await scrapeTable();
     console.log(`📊 Scraped ${data.length} rows from the first table`);
     console.log(`📋 Table headers: ${data[0] ? data[0].join(' | ') : 'None'}`);
-    await uploadToSheet(data);
+  await uploadToSheet(data);
   } catch (error) {
     console.error("❌ Main scraping failed:", error.message);
     
     // Check if it's a network/timeout issue
     if (error.message.includes('timeout') || error.message.includes('Navigation timeout')) {
-      console.log("🔄 Network issue detected, trying fallback data...");
+      console.log("🔄 Network issue detected, trying alternative approach...");
+      
+      // Try alternative scraping approach first
+      const alternativeSuccess = await alternativeScrapingApproach();
+      if (alternativeSuccess) {
+        console.log("✅ Alternative approach worked!");
+        return; // Success with alternative method
+      }
+      
+      console.log("❌ Alternative approach failed, trying fallback data...");
       const fallbackSuccess = await uploadFallbackData();
       
       if (fallbackSuccess) {
@@ -250,7 +273,7 @@ async function runScraper() {
       }
     }
     
-    // Re-throw the original error if fallback didn't work
+    // Re-throw the original error if all fallbacks failed
     throw error;
   }
 }

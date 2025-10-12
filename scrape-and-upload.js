@@ -29,18 +29,41 @@ async function scrapeTable() {
     try {
       await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
         waitUntil: "domcontentloaded",
-        timeout: 30000
+        timeout: 60000
       });
       console.log("✅ Page loaded with domcontentloaded");
+      // Wait a bit more for dynamic content
+      await page.waitForTimeout(3000);
     } catch (secondError) {
-      console.error("❌ Failed to load page after retry:", secondError.message);
-      await browser.close();
-      throw secondError;
+      console.log("⚠️ Second attempt failed, trying with load event...");
+      try {
+        await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
+          waitUntil: "load",
+          timeout: 60000
+        });
+        console.log("✅ Page loaded with load event");
+        // Wait for content to load
+        await page.waitForTimeout(5000);
+      } catch (thirdError) {
+        console.error("❌ All loading attempts failed:", thirdError.message);
+        await browser.close();
+        throw thirdError;
+      }
     }
   }
 
+  console.log("🔍 Looking for tables...");
   const tables = await page.$$("table");
+  console.log(`📊 Found ${tables.length} tables`);
+  
+  if (tables.length < 2) {
+    console.error("❌ Not enough tables found. Expected at least 2, got:", tables.length);
+    await browser.close();
+    throw new Error("Insufficient tables found on page");
+  }
+  
   const leagueTable = tables[1]; // Second table (index 1)
+  console.log("✅ Using second table as league table");
   
   const tableData = await leagueTable.evaluate(table => {
     const rows = Array.from(table.querySelectorAll("tr"));

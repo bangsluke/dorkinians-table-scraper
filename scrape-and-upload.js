@@ -21,9 +21,17 @@ async function scrapeTable() {
   console.log("📄 Creating new page...");
   const page = await browser.newPage();
   
-  // Set longer timeout and better error handling
+  // Force timeout settings - multiple approaches for GitHub Actions compatibility
   page.setDefaultTimeout(120000); // 2 minutes
   page.setDefaultNavigationTimeout(120000); // 2 minutes
+  
+  // Additional timeout enforcement
+  page._timeoutSettings.setDefaultTimeout(120000);
+  page._timeoutSettings.setDefaultNavigationTimeout(120000);
+  
+  console.log("📊 Timeout settings applied:");
+  console.log("- Default timeout:", page._timeoutSettings.timeout());
+  console.log("- Navigation timeout:", page._timeoutSettings.navigationTimeout());
   
   console.log("🔗 Navigating to website...");
   let pageLoaded = false;
@@ -39,10 +47,23 @@ async function scrapeTable() {
     const attempt = attempts[i];
     try {
       console.log(`🔄 Attempt ${i + 1}: ${attempt.name} (${attempt.timeout}ms timeout)`);
-      await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
+      
+      // Force timeout settings before each attempt
+      page.setDefaultTimeout(attempt.timeout);
+      page.setDefaultNavigationTimeout(attempt.timeout);
+      
+      // Explicit timeout in goto call with additional safety
+      const navigationPromise = page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
         waitUntil: attempt.waitUntil,
         timeout: attempt.timeout
       });
+      
+      // Add a manual timeout wrapper as additional safety
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error(`Manual timeout after ${attempt.timeout}ms`)), attempt.timeout);
+      });
+      
+      await Promise.race([navigationPromise, timeoutPromise]);
       console.log(`✅ Page loaded successfully with ${attempt.name}`);
       pageLoaded = true;
       

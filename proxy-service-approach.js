@@ -41,7 +41,6 @@ async function proxyServiceApproach() {
           '--disable-extensions',
           '--disable-plugins',
           '--disable-images',
-          '--disable-javascript',
           '--disable-default-apps',
           '--disable-sync',
           '--disable-translate',
@@ -75,13 +74,56 @@ async function proxyServiceApproach() {
           'Upgrade-Insecure-Requests': '1'
         });
         
-        // Try to navigate
-        await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
-          waitUntil: "domcontentloaded",
-          timeout: 30000
-        });
+        // Try to navigate with multiple strategies
+        let navigationSuccess = false;
+        const strategies = [
+          { waitUntil: "load", timeout: 20000 },
+          { waitUntil: "domcontentloaded", timeout: 30000 },
+          { waitUntil: "networkidle0", timeout: 45000 }
+        ];
+        
+        for (let strategy of strategies) {
+          try {
+            console.log(`🔄 Trying navigation with ${strategy.waitUntil} (${strategy.timeout}ms timeout)`);
+            await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", strategy);
+            navigationSuccess = true;
+            console.log(`✅ Navigation successful with ${strategy.waitUntil}`);
+            break;
+          } catch (error) {
+            console.log(`⚠️ Navigation failed with ${strategy.waitUntil}: ${error.message}`);
+            if (strategy === strategies[strategies.length - 1]) {
+              throw error; // Re-throw the last error if all strategies fail
+            }
+          }
+        }
+        
+        if (!navigationSuccess) {
+          throw new Error("All navigation strategies failed");
+        }
         
         console.log(`✅ Success with ${service.name}!`);
+        
+        // Wait for dynamic content to load
+        console.log("⏱️ Waiting for dynamic content to load...");
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        // Try to click on any "click here" links to trigger league table loading
+        try {
+          const clickableLinks = await page.$$('a');
+          for (let link of clickableLinks) {
+            const text = await link.evaluate(el => el.textContent);
+            const href = await link.evaluate(el => el.href);
+            
+            if (text.includes('click here') || text.includes('South Division 10') || href.includes('South Division 10')) {
+              console.log("🖱️ Clicking on league table link to trigger loading...");
+              await link.click();
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              break;
+            }
+          }
+        } catch (clickError) {
+          console.log("⚠️ Could not click league table link:", clickError.message);
+        }
         
         // Check if we got the content
         const tables = await page.$$("table");

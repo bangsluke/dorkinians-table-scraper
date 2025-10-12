@@ -39,10 +39,33 @@ async function dynamicContentScraper() {
     });
     
     console.log("🔗 Navigating to website...");
-    await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
-      waitUntil: "networkidle0",
-      timeout: 45000
-    });
+    
+    // Try multiple navigation strategies
+    let navigationSuccess = false;
+    const strategies = [
+      { waitUntil: "load", timeout: 20000 },
+      { waitUntil: "domcontentloaded", timeout: 30000 },
+      { waitUntil: "networkidle0", timeout: 45000 }
+    ];
+    
+    for (let strategy of strategies) {
+      try {
+        console.log(`🔄 Trying navigation with ${strategy.waitUntil} (${strategy.timeout}ms timeout)`);
+        await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", strategy);
+        navigationSuccess = true;
+        console.log(`✅ Navigation successful with ${strategy.waitUntil}`);
+        break;
+      } catch (error) {
+        console.log(`⚠️ Navigation failed with ${strategy.waitUntil}: ${error.message}`);
+        if (strategy === strategies[strategies.length - 1]) {
+          throw error; // Re-throw the last error if all strategies fail
+        }
+      }
+    }
+    
+    if (!navigationSuccess) {
+      throw new Error("All navigation strategies failed");
+    }
     
     console.log("⏱️ Waiting for dynamic content to load...");
     

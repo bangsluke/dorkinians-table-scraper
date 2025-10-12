@@ -2,6 +2,8 @@
 require("dotenv").config();
 const puppeteer = require("puppeteer");
 const { google } = require("googleapis");
+const { testNetworkConnectivity } = require("./network-diagnostics");
+const { uploadFallbackData } = require("./fallback-data-source");
 
 async function scrapeTable() {
   console.log("🌐 Launching browser...");
@@ -33,9 +35,19 @@ async function scrapeTable() {
   console.log("📄 Creating new page...");
   const page = await browser.newPage();
   
-  // Stealth techniques to avoid bot detection
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+  // Enhanced stealth techniques to avoid bot detection
+  await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
   await page.setViewport({ width: 1920, height: 1080 });
+  
+  // Set additional headers to appear more like a real browser
+  await page.setExtraHTTPHeaders({
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'DNT': '1',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+  });
   
   // Add random delay to appear more human-like
   const delay = Math.random() * 2000 + 1000; // 1-3 seconds
@@ -82,12 +94,13 @@ async function scrapeTable() {
     console.log('🚨 Page error:', error.message);
   });
   
-  // Try multiple approaches with optimized timeouts
+  // Try multiple approaches with GitHub Actions optimized timeouts
   const attempts = [
-    { waitUntil: "load", timeout: 30000, name: "load (30s)" },
-    { waitUntil: "domcontentloaded", timeout: 30000, name: "domcontentloaded (30s)" },
-    { waitUntil: "networkidle0", timeout: 60000, name: "networkidle0 (60s)" },
-    { waitUntil: "networkidle2", timeout: 120000, name: "networkidle2 (120s)" }
+    { waitUntil: "load", timeout: 10000, name: "load (10s)" },
+    { waitUntil: "domcontentloaded", timeout: 10000, name: "domcontentloaded (10s)" },
+    { waitUntil: "load", timeout: 15000, name: "load (15s)" },
+    { waitUntil: "domcontentloaded", timeout: 15000, name: "domcontentloaded (15s)" },
+    { waitUntil: "load", timeout: 30000, name: "load (30s)" }
   ];
   
   for (let i = 0; i < attempts.length; i++) {
@@ -213,10 +226,33 @@ async function uploadToSheet(data) {
 }
 
 async function runScraper() {
-  const data = await scrapeTable();
-  console.log(`📊 Scraped ${data.length} rows from the first table`);
-  console.log(`📋 Table headers: ${data[0] ? data[0].join(' | ') : 'None'}`);
-  await uploadToSheet(data);
+  try {
+    // Run network diagnostics first
+    await testNetworkConnectivity();
+    
+    const data = await scrapeTable();
+    console.log(`📊 Scraped ${data.length} rows from the first table`);
+    console.log(`📋 Table headers: ${data[0] ? data[0].join(' | ') : 'None'}`);
+    await uploadToSheet(data);
+  } catch (error) {
+    console.error("❌ Main scraping failed:", error.message);
+    
+    // Check if it's a network/timeout issue
+    if (error.message.includes('timeout') || error.message.includes('Navigation timeout')) {
+      console.log("🔄 Network issue detected, trying fallback data...");
+      const fallbackSuccess = await uploadFallbackData();
+      
+      if (fallbackSuccess) {
+        console.log("✅ Fallback data uploaded successfully");
+        return; // Don't re-throw, we handled it with fallback
+      } else {
+        console.log("❌ Fallback data also failed");
+      }
+    }
+    
+    // Re-throw the original error if fallback didn't work
+    throw error;
+  }
 }
 
 module.exports = runScraper;

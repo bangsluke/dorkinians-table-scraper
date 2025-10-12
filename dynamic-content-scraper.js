@@ -40,11 +40,14 @@ async function dynamicContentScraper() {
     
     console.log("🔗 Navigating to website...");
     await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
-      waitUntil: "domcontentloaded",
-      timeout: 15000
+      waitUntil: "networkidle0",
+      timeout: 45000
     });
     
     console.log("⏱️ Waiting for dynamic content to load...");
+    
+    // Wait a bit for initial content to load
+    await new Promise(resolve => setTimeout(resolve, 5000));
     
     // Try to click on any "click here" links to trigger league table loading
     try {
@@ -56,13 +59,16 @@ async function dynamicContentScraper() {
         if (text.includes('click here') || text.includes('South Division 10') || href.includes('South Division 10')) {
           console.log("🖱️ Clicking on league table link to trigger loading...");
           await link.click();
-          await page.waitForTimeout(3000); // Wait a bit for the click to take effect
+          await new Promise(resolve => setTimeout(resolve, 5000)); // Wait longer for the click to take effect
           break;
         }
       }
     } catch (clickError) {
       console.log("⚠️ Could not click league table link:", clickError.message);
     }
+    
+    // Additional wait for any AJAX requests to complete
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
     // Wait for the league table to load with actual standings data
     try {
@@ -99,12 +105,16 @@ async function dynamicContentScraper() {
           }
         }
         return false;
-      }, { timeout: 30000 });
+      }, { timeout: 60000 });
       
       console.log("✅ Dynamic content loaded successfully");
       
     } catch (waitError) {
       console.log("⚠️ Timeout waiting for dynamic content, proceeding with current state");
+      
+      // Try one more time with a longer wait
+      console.log("🔄 Trying extended wait for league table...");
+      await new Promise(resolve => setTimeout(resolve, 10000));
     }
     
     // Check tables
@@ -160,6 +170,32 @@ async function dynamicContentScraper() {
         return filteredData;
       } else {
         console.log("⚠️ No meaningful data found after filtering");
+        
+        // Try to find any table that might contain league data, even if partially loaded
+        console.log("🔄 Trying to find any league-related data...");
+        for (let i = 0; i < tables.length; i++) {
+          const table = tables[i];
+          const tableData = await table.evaluate(table => {
+            const rows = Array.from(table.querySelectorAll("tr"));
+            return rows.map(row =>
+              Array.from(row.querySelectorAll("td, th")).map(cell => cell.innerText.trim())
+            );
+          });
+          
+          // Look for any rows that might contain team names and numbers
+          const potentialLeagueData = tableData.filter(row => {
+            if (row.length < 3) return false;
+            const hasNumbers = row.some(cell => !isNaN(parseInt(cell)) && parseInt(cell) >= 0);
+            const hasText = row.some(cell => cell.length > 2 && !cell.match(/^\d+$/));
+            return hasNumbers && hasText;
+          });
+          
+          if (potentialLeagueData.length > 0) {
+            console.log(`📊 Found potential league data in table ${i}: ${potentialLeagueData.length} rows`);
+            await browser.close();
+            return potentialLeagueData;
+          }
+        }
       }
     }
     

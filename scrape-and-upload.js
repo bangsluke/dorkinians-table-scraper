@@ -36,11 +36,12 @@ async function scrapeTable() {
   console.log("🔗 Navigating to website...");
   let pageLoaded = false;
   
-  // Try multiple approaches with increasing timeouts
+  // Try multiple approaches with optimized timeouts
   const attempts = [
-    { waitUntil: "networkidle2", timeout: 120000, name: "networkidle2" },
-    { waitUntil: "domcontentloaded", timeout: 120000, name: "domcontentloaded" },
-    { waitUntil: "load", timeout: 120000, name: "load" }
+    { waitUntil: "load", timeout: 30000, name: "load (30s)" },
+    { waitUntil: "domcontentloaded", timeout: 30000, name: "domcontentloaded (30s)" },
+    { waitUntil: "networkidle0", timeout: 60000, name: "networkidle0 (60s)" },
+    { waitUntil: "networkidle2", timeout: 120000, name: "networkidle2 (120s)" }
   ];
   
   for (let i = 0; i < attempts.length; i++) {
@@ -65,13 +66,22 @@ async function scrapeTable() {
       
       await Promise.race([navigationPromise, timeoutPromise]);
       console.log(`✅ Page loaded successfully with ${attempt.name}`);
-      pageLoaded = true;
       
-      // Wait a bit more for dynamic content
-      if (attempt.waitUntil !== "networkidle2") {
-        await page.waitForTimeout(5000);
+      // Check if we have the required tables before considering it successful
+      const tables = await page.$$("table");
+      console.log(`📊 Found ${tables.length} tables after loading`);
+      
+      if (tables.length >= 2) {
+        console.log("✅ Sufficient tables found - page load successful");
+        pageLoaded = true;
+        break;
+      } else {
+        console.log(`⚠️ Insufficient tables found (${tables.length}), trying next strategy...`);
+        // Wait a bit more for dynamic content
+        if (attempt.waitUntil !== "networkidle2") {
+          await page.waitForTimeout(3000);
+        }
       }
-      break;
     } catch (error) {
       console.log(`⚠️ Attempt ${i + 1} failed: ${error.message}`);
       if (i === attempts.length - 1) {

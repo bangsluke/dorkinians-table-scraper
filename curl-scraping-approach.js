@@ -1,6 +1,7 @@
 // curl-scraping-approach.js - Use curl to bypass blocking
 const { exec } = require('child_process');
 const { promisify } = require('util');
+const fetch = require('node-fetch');
 
 const execAsync = promisify(exec);
 
@@ -42,7 +43,7 @@ async function curlScrapingApproach() {
         console.log(`✅ Curl succeeded with ${curlCmd.name} - got ${stdout.length} characters`);
         
         // Parse the HTML to extract table data
-        const tableData = parseHtmlForTableData(stdout);
+        const tableData = await parseHtmlForTableData(stdout);
         if (tableData && tableData.length > 0) {
           console.log(`📊 Successfully extracted ${tableData.length} rows using curl`);
           return tableData;
@@ -61,11 +62,82 @@ async function curlScrapingApproach() {
   return null;
 }
 
-function parseHtmlForTableData(html) {
+async function parseHtmlForTableData(html) {
   try {
     console.log("🔍 Parsing HTML for table data...");
 
-    // First, try to find any embedded league data in JavaScript or JSON
+    // First, try to find API endpoints or data sources
+    console.log("🔍 Looking for API endpoints or data sources...");
+    
+    // Look for AJAX calls, API endpoints, or data URLs
+    const apiPatterns = [
+      // AJAX calls
+      /\.ajax\([^)]*url:\s*['"]([^'"]+)['"]/gi,
+      // Fetch calls
+      /fetch\(['"]([^'"]+)['"]/gi,
+      // XMLHttpRequest
+      /open\(['"](GET|POST)['"],\s*['"]([^'"]+)['"]/gi,
+      // Data URLs
+      /data-[^=]*="([^"]*\.(json|xml|csv)[^"]*)"/gi,
+      // Script sources
+      /<script[^>]*src=['"]([^'"]*\.(js|json)[^'"]*)['"]/gi
+    ];
+    
+    const foundEndpoints = new Set();
+    for (let pattern of apiPatterns) {
+      const matches = html.match(pattern);
+      if (matches) {
+        for (let match of matches) {
+          const urlMatch = match.match(/['"]([^'"]+)['"]/);
+          if (urlMatch) {
+            const url = urlMatch[1];
+            if (url.includes('league') || url.includes('division') || url.includes('standings') || url.includes('table')) {
+              foundEndpoints.add(url);
+              console.log(`🔗 Found potential data endpoint: ${url}`);
+            }
+          }
+        }
+      }
+    }
+    
+    // Try to fetch data from found endpoints
+    for (let endpoint of foundEndpoints) {
+      try {
+        console.log(`🔄 Trying to fetch data from: ${endpoint}`);
+        const fullUrl = endpoint.startsWith('http') ? endpoint : `https://www.southernamateurleague.co.uk/${endpoint}`;
+        const response = await fetch(fullUrl);
+        const data = await response.text();
+        console.log(`✅ Got ${data.length} characters from ${endpoint}`);
+        
+        // Try to parse as JSON
+        try {
+          const jsonData = JSON.parse(data);
+          if (Array.isArray(jsonData) && jsonData.length > 0) {
+            console.log(`📊 Found JSON data with ${jsonData.length} items`);
+            // Check if this looks like league data
+            if (jsonData.some(item => 
+              typeof item === 'object' && 
+              item !== null && 
+              (item.team || item.name || item.position || item.pts || item.wins || item.draws || item.losses)
+            )) {
+              console.log("📊 Found potential league data in API response");
+              return jsonData.map(item => {
+                if (typeof item === 'object' && item !== null) {
+                  return Object.values(item).map(val => String(val || ''));
+                }
+                return [String(item)];
+              });
+            }
+          }
+        } catch (e) {
+          // Not JSON, continue
+        }
+      } catch (e) {
+        console.log(`❌ Failed to fetch from ${endpoint}: ${e.message}`);
+      }
+    }
+    
+    // Look for embedded league data in JavaScript or JSON
     console.log("🔍 Looking for embedded league data in JavaScript...");
     
     // Look for various patterns that might contain league data

@@ -41,12 +41,30 @@ async function dynamicContentScraper() {
     console.log("🔗 Navigating to website...");
     await page.goto("https://www.southernamateurleague.co.uk/south-division-10.html", {
       waitUntil: "domcontentloaded",
-      timeout: 30000
+      timeout: 15000
     });
     
     console.log("⏱️ Waiting for dynamic content to load...");
     
-    // Wait for the table to load with actual data (not "Data loading")
+    // Try to click on any "click here" links to trigger league table loading
+    try {
+      const clickableLinks = await page.$$('a');
+      for (let link of clickableLinks) {
+        const text = await link.evaluate(el => el.textContent);
+        const href = await link.evaluate(el => el.href);
+        
+        if (text.includes('click here') || text.includes('South Division 10') || href.includes('South Division 10')) {
+          console.log("🖱️ Clicking on league table link to trigger loading...");
+          await link.click();
+          await page.waitForTimeout(3000); // Wait a bit for the click to take effect
+          break;
+        }
+      }
+    } catch (clickError) {
+      console.log("⚠️ Could not click league table link:", clickError.message);
+    }
+    
+    // Wait for the league table to load with actual standings data
     try {
       await page.waitForFunction(() => {
         const tables = document.querySelectorAll('table');
@@ -55,13 +73,28 @@ async function dynamicContentScraper() {
         const secondTable = tables[1];
         const rows = secondTable.querySelectorAll('tr');
         
-        // Check if we have meaningful data (not just "Data loading")
+        // Look for league table indicators (POS, PTS, W, D, L, F, A, GD)
         for (let row of rows) {
-          const cells = row.querySelectorAll('td, th');
-          for (let cell of cells) {
-            const text = cell.innerText.trim();
-            if (text && !text.includes('Data loading') && text.length > 2) {
-              return true;
+          const cells = Array.from(row.querySelectorAll('td, th')).map(cell => cell.innerText.trim());
+          const rowText = cells.join(' ').toLowerCase();
+          
+          // Check if this row contains league table headers or data
+          if (rowText.includes('pos') && rowText.includes('pts') && rowText.includes('w') && rowText.includes('d') && rowText.includes('l')) {
+            return true; // Found league table headers
+          }
+          
+          // Check if this looks like a league table row with team names and stats
+          if (cells.length >= 5) {
+            const hasNumericStats = cells.some(cell => {
+              const num = parseInt(cell);
+              return !isNaN(num) && num >= 0 && num <= 100;
+            });
+            const hasTeamName = cells.some(cell => {
+              return cell.length > 2 && !cell.match(/^\d+$/) && !cell.match(/^[A-Z]$/) && !cell.includes('Data loading');
+            });
+            
+            if (hasNumericStats && hasTeamName) {
+              return true; // Found league table data
             }
           }
         }
@@ -87,13 +120,37 @@ async function dynamicContentScraper() {
         );
       });
       
-      // Filter out empty rows and loading messages
-      const filteredData = tableData.filter(row => 
-        row.length > 0 && 
-        row.some(cell => cell.trim() !== '') &&
-        !row.some(cell => cell.includes('Data loading')) &&
-        !row.some(cell => cell.includes('click here'))
-      );
+      // Filter for league table data only - look for rows that contain league table indicators
+      const filteredData = tableData.filter(row => {
+        // Must have at least 5 columns
+        if (row.length < 5) return false;
+        
+        // Must not contain loading messages or other non-league content
+        if (row.some(cell => cell.includes('Data loading') || cell.includes('click here') || cell.includes('var lrcode'))) {
+          return false;
+        }
+        
+        // Check if this looks like a league table row by looking for common patterns
+        const rowText = row.join(' ').toLowerCase();
+        
+        // Skip header rows and non-data rows
+        if (rowText.includes('pos') && rowText.includes('pts') && rowText.includes('w') && rowText.includes('d') && rowText.includes('l')) {
+          return true; // This is likely a header row
+        }
+        
+        // Look for rows that have numeric values that could be league stats
+        const hasNumericValues = row.some(cell => {
+          const num = parseInt(cell);
+          return !isNaN(num) && num >= 0 && num <= 100; // Reasonable range for league stats
+        });
+        
+        // Look for team names (not just numbers or single characters)
+        const hasTeamName = row.some(cell => {
+          return cell.length > 2 && !cell.match(/^\d+$/) && !cell.match(/^[A-Z]$/);
+        });
+        
+        return hasNumericValues && hasTeamName;
+      });
       
       console.log(`📊 Extracted ${filteredData.length} rows after filtering`);
       

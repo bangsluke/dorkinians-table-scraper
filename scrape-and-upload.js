@@ -202,11 +202,59 @@ async function scrapeTable() {
     const rows = Array.from(table.querySelectorAll("tr"));
     return rows.map(row =>
       Array.from(row.querySelectorAll("td, th")).map(cell => cell.innerText.trim())
-  );
+    );
   });
+  
+  // Filter for league table data only - look for rows that contain league table indicators
+  const filteredData = tableData.filter(row => {
+    // Must have at least 5 columns
+    if (row.length < 5) return false;
+    
+    // Must not contain loading messages or other non-league content
+    if (row.some(cell => cell.includes('Data loading') || cell.includes('click here') || cell.includes('var lrcode'))) {
+      return false;
+    }
+    
+    // Check if this looks like a league table row by looking for common patterns
+    const rowText = row.join(' ').toLowerCase();
+    
+    // Skip header rows and non-data rows
+    if (rowText.includes('pos') && rowText.includes('pts') && rowText.includes('w') && rowText.includes('d') && rowText.includes('l')) {
+      return true; // This is likely a header row
+    }
+    
+    // Look for rows that have numeric values that could be league stats
+    const hasNumericValues = row.some(cell => {
+      const num = parseInt(cell);
+      return !isNaN(num) && num >= 0 && num <= 100; // Reasonable range for league stats
+    });
+    
+    // Look for team names (not just numbers or single characters)
+    const hasTeamName = row.some(cell => {
+      return cell.length > 2 && !cell.match(/^\d+$/) && !cell.match(/^[A-Z]$/);
+    });
+    
+    return hasNumericValues && hasTeamName;
+  });
+  
+  console.log(`📊 Filtered to ${filteredData.length} league table rows`);
+  
+  // Debug: Show first few rows of raw data
+  console.log("🔍 Raw table data (first 5 rows):");
+  tableData.slice(0, 5).forEach((row, index) => {
+    console.log(`Row ${index}: [${row.join(' | ')}]`);
+  });
+  
+  // Debug: Show filtered data
+  if (filteredData.length > 0) {
+    console.log("🔍 Filtered data (first 5 rows):");
+    filteredData.slice(0, 5).forEach((row, index) => {
+      console.log(`Filtered ${index}: [${row.join(' | ')}]`);
+    });
+  }
 
   await browser.close();
-  return tableData;
+  return filteredData;
 }
 
 async function uploadToSheet(data) {

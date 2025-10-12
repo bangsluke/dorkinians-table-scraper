@@ -120,24 +120,46 @@ function parseHtmlForTableData(html) {
     // Look for specific league table patterns in the HTML
     console.log("🔍 Looking for league table patterns in HTML...");
     
-    // Look for table rows that might contain league data even if not in a proper table structure
-    const rowPatterns = [
-      /<tr[^>]*>.*?(\d+).*?([A-Za-z\s]+).*?(\d+).*?(\d+).*?(\d+).*?(\d+).*?(\d+).*?(\d+).*?(\d+).*?(\d+).*?<\/tr>/gi,
-      /<div[^>]*>.*?(\d+).*?([A-Za-z\s]+).*?(\d+).*?(\d+).*?(\d+).*?(\d+).*?(\d+).*?(\d+).*?(\d+).*?(\d+).*?<\/div>/gi
-    ];
+    // Look for actual league table data in a more precise way
+    console.log("🔍 Looking for precise league table data...");
     
-    for (let pattern of rowPatterns) {
-      const matches = html.match(pattern);
-      if (matches && matches.length > 1) {
-        console.log(`📊 Found ${matches.length} potential league rows with pattern`);
-        const leagueData = matches.map(match => {
-          const cells = match.match(/(\d+|[A-Za-z\s]+)/g);
-          return cells ? cells.map(cell => cell.trim()) : [];
-        }).filter(row => row.length >= 5);
+    // First, try to find the actual league table by looking for specific content
+    const leagueTableRegex = /<table[^>]*>[\s\S]*?(?:POS|Position|Pos)[\s\S]*?<\/table>/gi;
+    const leagueTables = html.match(leagueTableRegex);
+    
+    if (leagueTables && leagueTables.length > 0) {
+      console.log(`📊 Found ${leagueTables.length} potential league tables`);
+      
+      for (let table of leagueTables) {
+        // Extract rows from this table
+        const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+        const rows = table.match(rowRegex);
         
-        if (leagueData.length > 1) {
-          console.log("📊 Found potential league data in HTML patterns");
-          return leagueData;
+        if (rows && rows.length > 1) {
+          console.log(`📊 Found ${rows.length} rows in league table`);
+          
+          const tableData = rows.map(row => {
+            // Extract cells more carefully
+            const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+            const cells = row.match(cellRegex);
+            
+            if (!cells) return [];
+            
+            const rowData = cells.map(cell => {
+              // Remove HTML tags and get text content
+              let text = cell.replace(/<[^>]*>/g, '').trim();
+              // Clean up extra whitespace
+              text = text.replace(/\s+/g, ' ').trim();
+              return text;
+            }).filter(cell => cell.length > 0); // Only keep non-empty cells
+            
+            return rowData;
+          }).filter(row => row.length >= 5); // Only keep rows with at least 5 columns
+          
+          if (tableData.length > 1) {
+            console.log(`📊 Found ${tableData.length} meaningful rows in league table`);
+            return tableData;
+          }
         }
       }
     }
@@ -228,36 +250,81 @@ function parseHtmlForTableData(html) {
       return rowData;
     });
 
-    // Filter for league table data only - look for rows that contain league table indicators
+    // Filter for league table data only - be very strict about what constitutes league data
     const filteredData = tableData.filter(row => {
       // Must have at least 5 columns
       if (row.length < 5) return false;
 
-      // Must not contain loading messages or other non-league content
-      if (row.some(cell => cell.includes('Data loading') || cell.includes('click here') || cell.includes('var lrcode'))) {
+      // Must not contain loading messages, HTML attributes, or other non-league content
+      if (row.some(cell => 
+        cell.includes('Data loading') || 
+        cell.includes('click here') || 
+        cell.includes('var lrcode') ||
+        cell.includes('div') ||
+        cell.includes('id=') ||
+        cell.includes('style=') ||
+        cell.includes('class=') ||
+        cell.includes('width=') ||
+        cell.includes('align=') ||
+        cell.includes('overflow') ||
+        cell.includes('hidden') ||
+        cell.includes('wcustomhtml') ||
+        cell.includes('lrep') ||
+        cell.includes('href=') ||
+        cell.includes('https://') ||
+        cell.includes('http://') ||
+        cell.includes('thefa.com') ||
+        cell.includes('FULL-TIME') ||
+        cell.includes('FULL TIME') ||
+        cell.match(/^\d{10,}$/) || // Very long numbers (likely IDs)
+        cell.match(/^[a-z]+$/) && cell.length > 10 // Long lowercase words (likely HTML attributes)
+      )) {
         return false;
       }
 
       // Check if this looks like a league table row by looking for common patterns
       const rowText = row.join(' ').toLowerCase();
 
-      // Skip header rows and non-data rows
+      // Header row detection
       if (rowText.includes('pos') && rowText.includes('pts') && rowText.includes('w') && rowText.includes('d') && rowText.includes('l')) {
         return true; // This is likely a header row
       }
 
-      // Look for rows that have numeric values that could be league stats
-      const hasNumericValues = row.some(cell => {
+      // Data row detection - must have specific league table characteristics
+      const hasPosition = row.some(cell => {
+        const num = parseInt(cell);
+        return !isNaN(num) && num >= 1 && num <= 20; // Position should be 1-20
+      });
+
+      const hasTeamName = row.some(cell => {
+        return cell.length > 3 && 
+               !cell.match(/^\d+$/) && 
+               !cell.match(/^[A-Z]$/) &&
+               !cell.includes('div') &&
+               !cell.includes('id') &&
+               !cell.includes('style') &&
+               !cell.includes('class') &&
+               !cell.includes('width') &&
+               !cell.includes('align') &&
+               !cell.includes('overflow') &&
+               !cell.includes('hidden') &&
+               !cell.includes('wcustomhtml') &&
+               !cell.includes('lrep') &&
+               !cell.includes('href') &&
+               !cell.includes('https') &&
+               !cell.includes('http') &&
+               !cell.includes('thefa') &&
+               !cell.includes('FULL') &&
+               !cell.match(/^\d{10,}$/);
+      });
+
+      const hasNumericStats = row.some(cell => {
         const num = parseInt(cell);
         return !isNaN(num) && num >= 0 && num <= 100; // Reasonable range for league stats
       });
 
-      // Look for team names (not just numbers or single characters)
-      const hasTeamName = row.some(cell => {
-        return cell.length > 2 && !cell.match(/^\d+$/) && !cell.match(/^[A-Z]$/);
-      });
-
-      return hasNumericValues && hasTeamName;
+      // Must have position, team name, and numeric stats
+      return hasPosition && hasTeamName && hasNumericStats;
     });
 
     console.log(`📊 Extracted ${filteredData.length} meaningful rows after filtering`);

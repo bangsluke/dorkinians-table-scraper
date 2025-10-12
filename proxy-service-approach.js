@@ -107,23 +107,8 @@ async function proxyServiceApproach() {
         console.log("⏱️ Waiting for dynamic content to load...");
         await new Promise(resolve => setTimeout(resolve, 5000));
         
-        // Try to click on any "click here" links to trigger league table loading
-        try {
-          const clickableLinks = await page.$$('a');
-          for (let link of clickableLinks) {
-            const text = await link.evaluate(el => el.textContent);
-            const href = await link.evaluate(el => el.href);
-            
-            if (text.includes('click here') || text.includes('South Division 10') || href.includes('South Division 10')) {
-              console.log("🖱️ Clicking on league table link to trigger loading...");
-              await link.click();
-              await new Promise(resolve => setTimeout(resolve, 3000));
-              break;
-            }
-          }
-        } catch (clickError) {
-          console.log("⚠️ Could not click league table link:", clickError.message);
-        }
+        // Note: "click here" text is not actually clickable - just static text
+        console.log("ℹ️ Waiting for league table to load automatically...");
         
         // Check if we got the content
         const tables = await page.$$("table");

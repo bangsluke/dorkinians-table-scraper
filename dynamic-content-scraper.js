@@ -70,28 +70,13 @@ async function dynamicContentScraper() {
     console.log("⏱️ Waiting for dynamic content to load...");
     
     // Wait a bit for initial content to load
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    await new Promise(resolve => setTimeout(resolve, 10000));
     
-    // Try to click on any "click here" links to trigger league table loading
-    try {
-      const clickableLinks = await page.$$('a');
-      for (let link of clickableLinks) {
-        const text = await link.evaluate(el => el.textContent);
-        const href = await link.evaluate(el => el.href);
-        
-        if (text.includes('click here') || text.includes('South Division 10') || href.includes('South Division 10')) {
-          console.log("🖱️ Clicking on league table link to trigger loading...");
-          await link.click();
-          await new Promise(resolve => setTimeout(resolve, 5000)); // Wait longer for the click to take effect
-          break;
-        }
-      }
-    } catch (clickError) {
-      console.log("⚠️ Could not click league table link:", clickError.message);
-    }
+    // Note: "click here" text is not actually clickable - just static text
+    console.log("ℹ️ Waiting for league table to load automatically...");
     
     // Additional wait for any AJAX requests to complete
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise(resolve => setTimeout(resolve, 8000));
     
     // Wait for the league table to load with actual standings data
     try {
@@ -128,7 +113,7 @@ async function dynamicContentScraper() {
           }
         }
         return false;
-      }, { timeout: 60000 });
+      }, { timeout: 90000 });
       
       console.log("✅ Dynamic content loaded successfully");
       
@@ -137,7 +122,31 @@ async function dynamicContentScraper() {
       
       // Try one more time with a longer wait
       console.log("🔄 Trying extended wait for league table...");
-      await new Promise(resolve => setTimeout(resolve, 10000));
+      await new Promise(resolve => setTimeout(resolve, 15000));
+      
+      // Try to wait for any table with league-like data
+      try {
+        await page.waitForFunction(() => {
+          const tables = document.querySelectorAll('table');
+          for (let table of tables) {
+            const rows = table.querySelectorAll('tr');
+            for (let row of rows) {
+              const cells = Array.from(row.querySelectorAll('td, th')).map(cell => cell.innerText.trim());
+              if (cells.length >= 5) {
+                const hasNumbers = cells.some(cell => !isNaN(parseInt(cell)) && parseInt(cell) >= 0);
+                const hasText = cells.some(cell => cell.length > 2 && !cell.match(/^\d+$/));
+                if (hasNumbers && hasText && !cells.some(cell => cell.includes('Data loading'))) {
+                  return true;
+                }
+              }
+            }
+          }
+          return false;
+        }, { timeout: 30000 });
+        console.log("✅ Found league table data after extended wait");
+      } catch (extendedWaitError) {
+        console.log("⚠️ Extended wait also failed, proceeding with current state");
+      }
     }
     
     // Check tables

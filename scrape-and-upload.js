@@ -10,7 +10,22 @@ require('dotenv').config();
 
 class WebScrapingService {
   constructor() {
-    this.userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
+    this.userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0'
+    ];
+    this.currentUserAgentIndex = 0;
+  }
+
+  getCurrentUserAgent() {
+    return this.userAgents[this.currentUserAgentIndex];
+  }
+
+  rotateUserAgent() {
+    this.currentUserAgentIndex = (this.currentUserAgentIndex + 1) % this.userAgents.length;
   }
 
   /**
@@ -19,10 +34,11 @@ class WebScrapingService {
    * @param {number} retries - Number of retry attempts
    * @returns {Promise<string>} HTML content
    */
-  async fetchHTML(url, retries = 3) {
+  async fetchHTML(url, retries = 5) {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         console.log(`🔍 Attempt ${attempt}/${retries} - Fetching: ${url}`);
+        console.log(`🌐 Using User-Agent: ${this.getCurrentUserAgent().substring(0, 50)}...`);
         
         const html = await this._fetchHTMLSingle(url);
         console.log(`✅ Successfully fetched HTML (${html.length} characters)`);
@@ -35,9 +51,14 @@ class WebScrapingService {
           throw new Error(`Failed to fetch after ${retries} attempts. Last error: ${error.message}`);
         }
         
-        // Wait before retry (exponential backoff)
-        const waitTime = Math.pow(2, attempt) * 1000;
-        console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+        // Rotate User-Agent for next attempt
+        this.rotateUserAgent();
+        
+        // Wait before retry (exponential backoff with jitter)
+        const baseWaitTime = Math.pow(2, attempt) * 1000;
+        const jitter = Math.random() * 1000; // Add random jitter
+        const waitTime = baseWaitTime + jitter;
+        console.log(`⏳ Waiting ${Math.round(waitTime)}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
       }
     }
@@ -54,13 +75,19 @@ class WebScrapingService {
       
       const options = {
         headers: {
-          'User-Agent': this.userAgent,
+          'User-Agent': this.getCurrentUserAgent(),
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate',
+          'Accept-Encoding': 'gzip, deflate, br',
           'Connection': 'keep-alive',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none'
         },
-        timeout: 15000 // Reduced timeout for faster retries
+        timeout: 30000 // Increased timeout
       };
       
       const req = protocol.get(url, options, (res) => {
@@ -93,7 +120,7 @@ class WebScrapingService {
         reject(error);
       });
       
-      req.setTimeout(15000, () => {
+      req.setTimeout(30000, () => {
         req.destroy();
         reject(new Error('Request timeout'));
       });
@@ -135,7 +162,15 @@ class WebScrapingService {
       console.log(`🔍 Scraping FA league table: ${url}`);
       
       const html = await this.fetchHTML(url);
-      const dom = new JSDOM(html);
+      
+      // Add delay to allow dynamic content to load
+      console.log('⏳ Waiting for dynamic content to load...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      const dom = new JSDOM(html, {
+        runScripts: "dangerously",
+        resources: "usable"
+      });
       const document = dom.window.document;
       
       // Debug: Log page title and basic structure
@@ -145,23 +180,50 @@ class WebScrapingService {
       
       const tableRows = [];
       
-      // Find the league table - try multiple selectors
+      // Find the league table - try multiple selectors with better targeting
       const tables = document.querySelectorAll('table');
       console.log(`🔍 Found ${tables.length} tables on page`);
       
       let table = null;
       
-      // Try specific table number first
-      if (tables[tableNumber - 1]) {
+      // Try to find the standings table with more specific selectors
+      const possibleSelectors = [
+        'table.standings-table',
+        'table.table',
+        '.standings table',
+        'table[class*="standings"]',
+        'table[class*="league"]',
+        'table[class*="table"]',
+        'table[class*="results"]'
+      ];
+      
+      for (const selector of possibleSelectors) {
+        table = document.querySelector(selector);
+        if (table) {
+          console.log(`📊 Found table using selector: ${selector}`);
+          break;
+        }
+      }
+      
+      // If no specific table found, try by table number
+      if (!table && tables[tableNumber - 1]) {
         table = tables[tableNumber - 1];
         console.log(`📊 Using table ${tableNumber} (${tables.length} total tables)`);
-      } else {
-        // Try common selectors
-        table = document.querySelector('table.standings-table, table.table, .standings table, table[class*="standings"], table[class*="league"]');
-        if (!table && tables.length > 0) {
-          table = tables[0]; // Use first table as fallback
-          console.log('📊 Using first table as fallback');
-        }
+      } else if (!table && tables.length > 0) {
+        // Find the largest table (likely the main content)
+        let largestTable = tables[0];
+        let maxRows = 0;
+        
+        tables.forEach((t, index) => {
+          const rowCount = t.querySelectorAll('tr').length;
+          if (rowCount > maxRows) {
+            maxRows = rowCount;
+            largestTable = t;
+          }
+        });
+        
+        table = largestTable;
+        console.log(`📊 Using largest table with ${maxRows} rows`);
       }
       
       if (!table) {
@@ -238,48 +300,24 @@ async function scrapeTable() {
   const scraper = new WebScrapingService();
   const season = "2024-25";
   const team = "Dorkinians";
+  const url = "https://fulltime.thefa.com/index.html?divisionseason=311980811";
   
-  // Primary URL
-  const primaryUrl = "https://fulltime.thefa.com/index.html?divisionseason=311980811";
-  
-  // Fallback URLs (if primary fails)
-  const fallbackUrls = [
-    "https://fulltime.thefa.com/index.html?divisionseason=311980811",
-    // Add more fallback URLs if needed
-  ];
-  
-  const urls = [primaryUrl, ...fallbackUrls];
-  
-  for (let i = 0; i < urls.length; i++) {
-    const url = urls[i];
-    try {
-      console.log(`🔍 Trying URL ${i + 1}/${urls.length}: ${url}`);
-      const result = await scraper.scrapeFALeagueTable(url, season, team, 1);
-      
-      if (result && result.STANDINGS) {
-        const standings = JSON.parse(result.STANDINGS);
-        console.log(`📊 Found ${standings.length} teams in league table`);
-        return standings;
-      } else {
-        console.log("❌ No league table data found in this URL");
-        if (i < urls.length - 1) {
-          console.log("🔄 Trying next URL...");
-          continue;
-        }
-      }
-    } catch (error) {
-      console.error(`❌ URL ${i + 1} failed:`, error.message);
-      if (i < urls.length - 1) {
-        console.log("🔄 Trying next URL...");
-        continue;
-      } else {
-        throw error;
-      }
+  try {
+    console.log(`🔍 Scraping: ${url}`);
+    const result = await scraper.scrapeFALeagueTable(url, season, team, 1);
+    
+    if (result && result.STANDINGS) {
+      const standings = JSON.parse(result.STANDINGS);
+      console.log(`📊 Found ${standings.length} teams in league table`);
+      return standings;
+    } else {
+      console.log("❌ No league table data found");
+      return [];
     }
+  } catch (error) {
+    console.error("❌ Scraping failed:", error.message);
+    throw error;
   }
-  
-  console.log("❌ All URLs failed - no league table data found");
-  return [];
 }
 
 async function uploadToSheet(tableData) {

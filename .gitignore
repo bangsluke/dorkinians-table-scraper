@@ -1,5 +1,51 @@
-# Environment variables
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
+# Environment variables
 .env
-node_modules
+.env.*
+!.env.example
+
+# Credentials and sensitive files
 keys.json
+*.pem
+*.key
+service-account*.json
+credentials*.json
+
+# OS/Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.tmp
+
+# Builds/Outputs
+dist/
+build/
+coverage/
+.cache/
+
+# Puppeteer/Chrome
+.local-chromium/
+
+# GitHub Actions self-hosted runner artifacts
+_work/
+_diag/
+actions-runner/
+actions-runner/**
+actions-runner-*/
+actions-runner-*/**
+actions-runner-win-*.zip
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp

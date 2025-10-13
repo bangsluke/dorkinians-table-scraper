@@ -54,7 +54,7 @@ If you prefer Windows:
 - ✅ **Uses your IP address** - bypasses FA website blocking
 - ✅ **Runs locally** - no GitHub Actions IP restrictions
 - ✅ **Same as local testing** - should work exactly like your local runs
-- ✅ **Scheduled daily** - runs at 8:00 AM UK time
+- ✅ **Scheduled daily** - runs at 6:00 AM UK time
 
 ## Security Notes
 

@@ -3,6 +3,7 @@ const https = require('https');
 const http = require('http');
 const zlib = require('zlib');
 const { JSDOM } = require('jsdom');
+const puppeteer = require('puppeteer');
 const { JWT } = require('google-auth-library');
 
 // Load environment variables
@@ -74,18 +75,27 @@ class WebScrapingService {
         }
         
         if (attempt === retries) {
-          // If we're in GitHub Actions and all attempts failed, try alternative approach
+          // If we're in GitHub Actions and all attempts failed, try alternative approaches
           if (process.env.GITHUB_ACTIONS === 'true') {
-            console.log('🔄 Trying alternative fetch method for GitHub Actions...');
+            console.log('🔄 Trying headless browser method for GitHub Actions...');
             try {
-              const startTime = Date.now();
-              const html = await this._fetchHTMLAlternative(url);
-              const duration = Date.now() - startTime;
-              console.log(`✅ Alternative method succeeded (${html.length} characters) in ${duration}ms`);
+              const html = await this._fetchHTMLWithBrowser(url);
+              console.log(`✅ Headless browser method succeeded (${html.length} characters)`);
               return html;
-            } catch (altError) {
-              console.log(`❌ Alternative method also failed: ${altError.message}`);
-              console.log(`🔍 Alternative error details: code=${altError.code}, syscall=${altError.syscall}`);
+            } catch (browserError) {
+              console.log(`❌ Headless browser method failed: ${browserError.message}`);
+              console.log(`🔄 Trying proxy methods as fallback...`);
+              
+              try {
+                const startTime = Date.now();
+                const html = await this._fetchHTMLAlternative(url);
+                const duration = Date.now() - startTime;
+                console.log(`✅ Proxy method succeeded (${html.length} characters) in ${duration}ms`);
+                return html;
+              } catch (altError) {
+                console.log(`❌ All alternative methods failed: ${altError.message}`);
+                console.log(`🔍 Alternative error details: code=${altError.code}, syscall=${altError.syscall}`);
+              }
             }
           }
           
@@ -114,6 +124,80 @@ class WebScrapingService {
     if (html.includes('error') || html.includes('Error')) analysis.push('Error content detected');
     if (html.includes('timeout') || html.includes('Timeout')) analysis.push('Timeout message detected');
     return analysis.length > 0 ? analysis.join(', ') : 'No specific content patterns detected';
+  }
+
+  /**
+   * Headless browser fetch method for GitHub Actions
+   * @param {string} url - URL to fetch
+   * @returns {Promise<string>} HTML content
+   */
+  async _fetchHTMLWithBrowser(url) {
+    console.log(`🌐 Starting headless browser fetch for: ${url}`);
+    
+    let browser;
+    try {
+      console.log(`🚀 Launching headless browser...`);
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--disable-gpu'
+        ]
+      });
+      
+      const page = await browser.newPage();
+      
+      // Set user agent
+      await page.setUserAgent(this.getCurrentUserAgent());
+      
+      // Set viewport
+      await page.setViewport({ width: 1920, height: 1080 });
+      
+      console.log(`📄 Navigating to: ${url}`);
+      const startTime = Date.now();
+      
+      // Navigate to page and wait for network to be idle
+      await page.goto(url, { 
+        waitUntil: 'networkidle2',
+        timeout: 60000 // 60 second timeout
+      });
+      
+      // Wait additional time for dynamic content
+      console.log(`⏳ Waiting for dynamic content to load...`);
+      await page.waitForTimeout(7000); // Wait 7 seconds as you mentioned
+      
+      // Get the page content
+      const html = await page.content();
+      const duration = Date.now() - startTime;
+      
+      console.log(`✅ Browser fetch completed in ${duration}ms (${html.length} characters)`);
+      console.log(`📊 Response analysis: ${this._analyzeResponse(html)}`);
+      
+      // Log HTML content for debugging in GitHub Actions
+      if (process.env.GITHUB_ACTIONS === 'true') {
+        console.log(`📄 HTML Content (first 500 chars): ${html.substring(0, 500)}`);
+        if (html.length < 1000) {
+          console.log(`📄 Full HTML Content: ${html}`);
+        }
+      }
+      
+      return html;
+      
+    } catch (error) {
+      console.log(`❌ Browser fetch failed: ${error.message}`);
+      throw error;
+    } finally {
+      if (browser) {
+        console.log(`🧹 Closing browser...`);
+        await browser.close();
+      }
+    }
   }
 
   /**

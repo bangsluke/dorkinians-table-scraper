@@ -16,15 +16,17 @@ The FA website blocks GitHub Actions IP ranges, but allows your home IP address.
 
 ### 2. Download and Configure
 
+#### Option A: Linux (Recommended for servers)
+
 ```bash
 # Create a folder for the runner
 mkdir actions-runner && cd actions-runner
 
 # Download the runner package (replace with your token)
-curl -o actions-runner-linux-x64-2.311.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.311.0/actions-runner-linux-x64-2.311.0.tar.gz
+curl -o actions-runner-linux-x64-2.328.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.328.0/actions-runner-linux-x64-2.328.0.tar.gz
 
 # Extract
-tar xzf ./actions-runner-linux-x64-2.311.0.tar.gz
+tar xzf ./actions-runner-linux-x64-2.328.0.tar.gz
 
 # Configure (use token from GitHub)
 ./config.sh --url https://github.com/bangsluke/dorkinians-table-scraper --token YOUR_TOKEN
@@ -34,14 +36,18 @@ sudo ./svc.sh install
 sudo ./svc.sh start
 ```
 
-### 3. Alternative: Windows Setup
+#### Option B: Windows (For your local machine)
 
-If you prefer Windows:
+```powershell
+# Run the automated setup script
+.\setup-runner-windows.ps1
 
-1. Download `actions-runner-win-x64-2.311.0.zip`
-2. Extract to a folder
-3. Run `config.cmd` with your token
-4. Run `run.cmd` to start the runner
+# Or manually:
+# 1. Download actions-runner-win-x64-2.328.0.zip
+# 2. Extract to actions-runner folder
+# 3. Run: .\config.cmd --url [URL] --token [TOKEN]
+# 4. Run: .\run.cmd to start the runner
+```
 
 ### 4. Test the Runner
 

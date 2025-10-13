@@ -1,4 +1,4 @@
-name: League Table Scraper (Self-Hosted)
+name: League Table Scraper
 
 on:
   schedule:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   scrape:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
           GOOGLE_CLIENT_EMAIL: ${{ secrets.GOOGLE_CLIENT_EMAIL }}
           GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
-        run: node github-actions-runner.js
+        run: node scrape-and-upload.js
 
       - name: Notify on failure
         if: failure()

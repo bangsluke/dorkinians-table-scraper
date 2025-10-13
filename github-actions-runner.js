@@ -17,10 +17,14 @@ async function main() {
   try {
     await runScraper();
     console.log('✅ GitHub Actions scraper job completed successfully!');
+    process.exit(0); // Explicitly exit after success
   } catch (error) {
     console.error('❌ Scraper failed:', error.message);
     process.exit(1);
   }
 }
 
-main();
+main().catch((error) => {
+  console.error('❌ Unexpected error:', error);
+  process.exit(1);
+});

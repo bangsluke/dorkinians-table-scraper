@@ -35,26 +35,48 @@ class WebScrapingService {
    * @returns {Promise<string>} HTML content
    */
   async fetchHTML(url, retries = 5) {
+    console.log(`🌐 Starting fetch process for: ${url}`);
+    console.log(`🔧 Environment: GitHub Actions=${process.env.GITHUB_ACTIONS === 'true'}, Node=${process.version}, Platform=${process.platform}`);
+    console.log(`🔧 Available memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB used, ${Math.round(process.memoryUsage().heapTotal / 1024 / 1024)}MB total`);
+    
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         console.log(`🔍 Attempt ${attempt}/${retries} - Fetching: ${url}`);
         console.log(`🌐 Using User-Agent: ${this.getCurrentUserAgent().substring(0, 50)}...`);
         
+        const startTime = Date.now();
         const html = await this._fetchHTMLSingle(url);
-        console.log(`✅ Successfully fetched HTML (${html.length} characters)`);
+        const duration = Date.now() - startTime;
+        
+        console.log(`✅ Successfully fetched HTML (${html.length} characters) in ${duration}ms`);
+        console.log(`📊 Response analysis: ${this._analyzeResponse(html)}`);
         return html;
         
       } catch (error) {
         console.log(`⚠️ Attempt ${attempt} failed: ${error.message}`);
+        console.log(`🔍 Error details: code=${error.code}, syscall=${error.syscall}, address=${error.address}, port=${error.port}`);
+        
+        if (error.code === 'ETIMEDOUT') {
+          console.log(`⏰ Timeout detected - this is the primary issue in GitHub Actions`);
+        } else if (error.code === 'ECONNREFUSED') {
+          console.log(`🚫 Connection refused - possible firewall or DNS issue`);
+        } else if (error.code === 'ENOTFOUND') {
+          console.log(`🔍 DNS resolution failed - possible DNS issue`);
+        }
         
         if (attempt === retries) {
           // If we're in GitHub Actions and all attempts failed, try alternative approach
           if (process.env.GITHUB_ACTIONS === 'true') {
             console.log('🔄 Trying alternative fetch method for GitHub Actions...');
             try {
-              return await this._fetchHTMLAlternative(url);
+              const startTime = Date.now();
+              const html = await this._fetchHTMLAlternative(url);
+              const duration = Date.now() - startTime;
+              console.log(`✅ Alternative method succeeded (${html.length} characters) in ${duration}ms`);
+              return html;
             } catch (altError) {
               console.log(`❌ Alternative method also failed: ${altError.message}`);
+              console.log(`🔍 Alternative error details: code=${altError.code}, syscall=${altError.syscall}`);
             }
           }
           
@@ -74,27 +96,82 @@ class WebScrapingService {
     }
   }
 
+  _analyzeResponse(html) {
+    const analysis = [];
+    if (html.includes('Southern Amateur Football League')) analysis.push('League content found');
+    if (html.includes('table')) analysis.push('Table elements present');
+    if (html.includes('standings')) analysis.push('Standings content found');
+    if (html.length < 1000) analysis.push('Very short response - possible error page');
+    if (html.includes('error') || html.includes('Error')) analysis.push('Error content detected');
+    if (html.includes('timeout') || html.includes('Timeout')) analysis.push('Timeout message detected');
+    return analysis.length > 0 ? analysis.join(', ') : 'No specific content patterns detected';
+  }
+
   /**
-   * Alternative fetch method for GitHub Actions
+   * Alternative fetch method for GitHub Actions using proxy
    * @param {string} url - URL to fetch
    * @returns {Promise<string>} HTML content
    */
   async _fetchHTMLAlternative(url) {
+    console.log(`🔄 Starting alternative fetch methods for GitHub Actions`);
+    console.log(`🔧 Target URL: ${url}`);
+    
+    // Try multiple proxy services
+    const proxies = [
+      null, // Direct connection first
+      'https://cors-anywhere.herokuapp.com/',
+      'https://api.allorigins.win/raw?url=',
+      'https://thingproxy.freeboard.io/fetch/'
+    ];
+    
+    for (let i = 0; i < proxies.length; i++) {
+      const proxy = proxies[i];
+      try {
+        console.log(`🔄 Trying method ${i + 1}/${proxies.length}: ${proxy || 'Direct connection'}`);
+        const targetUrl = proxy ? proxy + encodeURIComponent(url) : url;
+        console.log(`🔗 Target URL: ${targetUrl}`);
+        
+        const startTime = Date.now();
+        const result = await this._fetchWithProxy(targetUrl, proxy);
+        const duration = Date.now() - startTime;
+        
+        console.log(`✅ Success with method ${i + 1} (${proxy || 'Direct'}): ${result.length} chars in ${duration}ms`);
+        console.log(`📊 Response analysis: ${this._analyzeResponse(result)}`);
+        return result;
+      } catch (error) {
+        console.log(`❌ Method ${i + 1} failed (${proxy || 'Direct'}): ${error.message}`);
+        console.log(`🔍 Method error details: code=${error.code}, syscall=${error.syscall}`);
+        
+        if (i === proxies.length - 1) {
+          console.log(`💥 All alternative methods failed`);
+          throw error; // Re-throw if all proxies failed
+        }
+      }
+    }
+  }
+
+  /**
+   * Fetch with specific proxy
+   * @param {string} targetUrl - URL to fetch (may include proxy)
+   * @param {string|null} proxy - Proxy service used
+   * @returns {Promise<string>} HTML content
+   */
+  async _fetchWithProxy(targetUrl, proxy) {
     return new Promise((resolve, reject) => {
-      const protocol = url.startsWith('https:') ? https : http;
+      const protocol = targetUrl.startsWith('https:') ? https : http;
       
       const options = {
         headers: {
-          'User-Agent': 'curl/7.68.0', // Use curl user agent
-          'Accept': '*/*',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Connection': 'close'
         },
-        timeout: 10000,
+        timeout: 15000,
         agent: false,
         family: 4
       };
       
-      const req = protocol.get(url, options, (res) => {
+      const req = protocol.get(targetUrl, options, (res) => {
         let data = '';
         
         res.on('data', (chunk) => {
@@ -114,7 +191,7 @@ class WebScrapingService {
         reject(error);
       });
       
-      req.setTimeout(10000, () => {
+      req.setTimeout(15000, () => {
         req.destroy();
         reject(new Error('Request timeout'));
       });
@@ -358,38 +435,55 @@ class WebScrapingService {
 
 async function scrapeTable() {
   console.log("🌐 Starting FA Full Time scraping...");
+  console.log(`🔧 Environment: GitHub Actions=${process.env.GITHUB_ACTIONS === 'true'}, Node=${process.version}`);
   
   const scraper = new WebScrapingService();
   const season = "2024-25";
   const team = "Dorkinians";
   const url = "https://fulltime.thefa.com/index.html?divisionseason=311980811";
   
+  console.log(`🔧 Scraper initialized with ${scraper.userAgents.length} User-Agent options`);
+  console.log(`🔧 Target: ${season} season, ${team} team, Table 1`);
+  
   try {
     console.log(`🔍 Scraping: ${url}`);
+    const startTime = Date.now();
     const result = await scraper.scrapeFALeagueTable(url, season, team, 1);
+    const duration = Date.now() - startTime;
+    
+    console.log(`⏱️ Scraping completed in ${duration}ms`);
+    console.log(`📊 Raw result type: ${typeof result}, has STANDINGS: ${result && result.STANDINGS ? 'Yes' : 'No'}`);
     
     if (result && result.STANDINGS) {
       const standings = JSON.parse(result.STANDINGS);
       console.log(`📊 Found ${standings.length} teams in league table`);
+      console.log(`📊 First team: ${standings[0] ? standings[0].team || 'Unknown' : 'None'}`);
       return standings;
     } else {
       console.log("❌ No league table data found");
+      console.log(`🔍 Result structure: ${JSON.stringify(Object.keys(result || {}))}`);
       return [];
     }
   } catch (error) {
     console.error("❌ Scraping failed:", error.message);
+    console.error(`🔍 Scraping error details: code=${error.code}, syscall=${error.syscall}`);
     throw error;
   }
 }
 
 async function uploadToSheet(tableData) {
   console.log("📤 Uploading to Google Sheets...");
+  console.log(`🔧 Data to upload: ${tableData.length} rows`);
+  console.log(`🔧 Sheet ID: ${process.env.SHEET_ID ? 'Set' : 'Missing'}`);
+  console.log(`🔧 Client Email: ${process.env.GOOGLE_CLIENT_EMAIL ? 'Set' : 'Missing'}`);
+  console.log(`🔧 Private Key: ${process.env.GOOGLE_PRIVATE_KEY ? 'Set' : 'Missing'}`);
   
   if (!process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY || !process.env.SHEET_ID) {
     throw new Error("Missing required environment variables");
   }
 
   // Use service account credentials with JWT
+  console.log(`🔐 Initializing Google Sheets authentication...`);
   const auth = new JWT({
     email: process.env.GOOGLE_CLIENT_EMAIL,
     key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
@@ -397,9 +491,15 @@ async function uploadToSheet(tableData) {
   });
 
   // Get access token
+  console.log(`🔐 Requesting access token...`);
+  const startAuthTime = Date.now();
   const accessToken = await auth.getAccessToken();
+  const authDuration = Date.now() - startAuthTime;
+  console.log(`✅ Authentication successful in ${authDuration}ms`);
+  console.log(`🔐 Token type: ${accessToken.token_type}, expires: ${accessToken.expiry_date}`);
   
   // Prepare data
+  console.log(`📊 Preparing data for upload...`);
   const values = [
     ['Position', 'Team', 'Played', 'Won', 'Drawn', 'Lost', 'For', 'Against', 'Goal Diff', 'Points'],
     ...tableData.map(row => [
@@ -415,15 +515,26 @@ async function uploadToSheet(tableData) {
       row.points
     ])
   ];
+  console.log(`📊 Prepared ${values.length} rows (${values[0].length} columns each)`);
+  console.log(`📊 Sample data: ${JSON.stringify(values[1] || 'No data')}`);
 
   // Clear existing data and add new data
   const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${process.env.SHEET_ID}/values/'Dorkinians%20Data'!D:Z?access_token=${accessToken.token}`;
   const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${process.env.SHEET_ID}/values/'Dorkinians%20Data'!D1?valueInputOption=USER_ENTERED&access_token=${accessToken.token}`;
+  
+  console.log(`🔗 Clear URL: ${clearUrl.substring(0, 100)}...`);
+  console.log(`🔗 Update URL: ${updateUrl.substring(0, 100)}...`);
 
   // Clear the sheet
-  await fetch(clearUrl, { method: 'DELETE' });
+  console.log(`🗑️ Clearing existing data from sheet...`);
+  const startClearTime = Date.now();
+  const clearResponse = await fetch(clearUrl, { method: 'DELETE' });
+  const clearDuration = Date.now() - startClearTime;
+  console.log(`✅ Clear operation completed in ${clearDuration}ms (status: ${clearResponse.status})`);
   
   // Add new data
+  console.log(`📤 Uploading new data to sheet...`);
+  const startUpdateTime = Date.now();
   const response = await fetch(updateUrl, {
     method: 'PUT',
     headers: {
@@ -433,8 +544,13 @@ async function uploadToSheet(tableData) {
       values: values
     })
   });
+  const updateDuration = Date.now() - startUpdateTime;
+  console.log(`✅ Update operation completed in ${updateDuration}ms (status: ${response.status})`);
 
   if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`❌ Google Sheets API error: ${response.status} ${response.statusText}`);
+    console.error(`❌ Error details: ${errorText}`);
     throw new Error(`Google Sheets API error: ${response.status} ${response.statusText}`);
   }
 
@@ -442,34 +558,61 @@ async function uploadToSheet(tableData) {
 }
 
 async function runScraper() {
+  const overallStartTime = Date.now();
+  console.log("🚀 Starting scraper...");
+  console.log(`🔧 Process ID: ${process.pid}`);
+  console.log(`🔧 Working directory: ${process.cwd()}`);
+  console.log(`🔧 Environment variables: ${Object.keys(process.env).length} set`);
+  
   try {
-    console.log("🚀 Starting scraper...");
-    
+    console.log("📊 Phase 1: Scraping data...");
+    const scrapeStartTime = Date.now();
     const tableData = await scrapeTable();
+    const scrapeDuration = Date.now() - scrapeStartTime;
+    console.log(`✅ Scraping phase completed in ${scrapeDuration}ms`);
     
     if (tableData.length === 0) {
       console.log("❌ No data to upload");
       return;
     }
     
+    console.log("📤 Phase 2: Uploading to Google Sheets...");
+    const uploadStartTime = Date.now();
     await uploadToSheet(tableData);
-    console.log("✅ Scraper completed successfully!");
+    const uploadDuration = Date.now() - uploadStartTime;
+    console.log(`✅ Upload phase completed in ${uploadDuration}ms`);
+    
+    const totalDuration = Date.now() - overallStartTime;
+    console.log(`✅ Scraper completed successfully in ${totalDuration}ms total!`);
     
   } catch (error) {
-    console.error("❌ Scraper failed:", error.message);
+    const totalDuration = Date.now() - overallStartTime;
+    console.error(`❌ Scraper failed after ${totalDuration}ms:`, error.message);
     
     // Log additional error details for debugging
+    console.error(`🔍 Error type: ${error.constructor.name}`);
     if (error.code) {
-      console.error(`Error code: ${error.code}`);
+      console.error(`🔍 Error code: ${error.code}`);
     }
     if (error.syscall) {
-      console.error(`System call: ${error.syscall}`);
+      console.error(`🔍 System call: ${error.syscall}`);
     }
     if (error.address) {
-      console.error(`Address: ${error.address}:${error.port || 'unknown'}`);
+      console.error(`🔍 Address: ${error.address}:${error.port || 'unknown'}`);
+    }
+    if (error.stack) {
+      console.error(`🔍 Stack trace: ${error.stack}`);
     }
     
     throw error;
+  } finally {
+    // Clean up any remaining connections
+    console.log(`🧹 Cleaning up resources...`);
+    if (global.gc) {
+      global.gc();
+      console.log(`🧹 Garbage collection triggered`);
+    }
+    console.log(`🧹 Cleanup completed`);
   }
 }
 

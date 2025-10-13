@@ -48,6 +48,16 @@ class WebScrapingService {
         console.log(`⚠️ Attempt ${attempt} failed: ${error.message}`);
         
         if (attempt === retries) {
+          // If we're in GitHub Actions and all attempts failed, try alternative approach
+          if (process.env.GITHUB_ACTIONS === 'true') {
+            console.log('🔄 Trying alternative fetch method for GitHub Actions...');
+            try {
+              return await this._fetchHTMLAlternative(url);
+            } catch (altError) {
+              console.log(`❌ Alternative method also failed: ${altError.message}`);
+            }
+          }
+          
           throw new Error(`Failed to fetch after ${retries} attempts. Last error: ${error.message}`);
         }
         
@@ -65,6 +75,53 @@ class WebScrapingService {
   }
 
   /**
+   * Alternative fetch method for GitHub Actions
+   * @param {string} url - URL to fetch
+   * @returns {Promise<string>} HTML content
+   */
+  async _fetchHTMLAlternative(url) {
+    return new Promise((resolve, reject) => {
+      const protocol = url.startsWith('https:') ? https : http;
+      
+      const options = {
+        headers: {
+          'User-Agent': 'curl/7.68.0', // Use curl user agent
+          'Accept': '*/*',
+          'Connection': 'close'
+        },
+        timeout: 10000,
+        agent: false,
+        family: 4
+      };
+      
+      const req = protocol.get(url, options, (res) => {
+        let data = '';
+        
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        
+        res.on('end', () => {
+          resolve(data);
+        });
+        
+        res.on('error', (error) => {
+          reject(error);
+        });
+      });
+      
+      req.on('error', (error) => {
+        reject(error);
+      });
+      
+      req.setTimeout(10000, () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
+    });
+  }
+
+  /**
    * Single fetch attempt
    * @param {string} url - URL to fetch
    * @returns {Promise<string>} HTML content
@@ -73,21 +130,26 @@ class WebScrapingService {
     return new Promise((resolve, reject) => {
       const protocol = url.startsWith('https:') ? https : http;
       
+      // Detect if running in GitHub Actions
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      
       const options = {
         headers: {
           'User-Agent': this.getCurrentUserAgent(),
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.5',
           'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
+          'Connection': isGitHubActions ? 'close' : 'keep-alive', // Use close for GitHub Actions
           'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-          'Upgrade-Insecure-Requests': '1',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none'
+          'Pragma': 'no-cache'
         },
-        timeout: 30000 // Increased timeout
+        timeout: isGitHubActions ? 15000 : 30000, // Shorter timeout for GitHub Actions
+        // Add additional options for GitHub Actions
+        ...(isGitHubActions && {
+          agent: false, // Disable connection pooling
+          family: 4, // Force IPv4
+          lookup: undefined // Use default DNS
+        })
       };
       
       const req = protocol.get(url, options, (res) => {
@@ -120,7 +182,7 @@ class WebScrapingService {
         reject(error);
       });
       
-      req.setTimeout(30000, () => {
+      req.setTimeout(options.timeout, () => {
         req.destroy();
         reject(new Error('Request timeout'));
       });

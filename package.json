@@ -1,13 +1,11 @@
 {
   "name": "dorkinianstablescraper",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Automatically scrapes the Southern Amateur League table and uploads it to Google Sheets",
+  "main": "scrape-and-upload.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "scrape": "node scrape-and-upload.js",
-    "start": "node index.js",
-    "dev": "node index.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
@@ -15,7 +13,6 @@
   "type": "commonjs",
   "dependencies": {
     "dotenv": "^17.2.3",
-    "express": "^5.1.0",
     "google-auth-library": "^10.4.0",
     "jsdom": "^24.0.0"
   }

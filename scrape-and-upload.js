@@ -50,6 +50,15 @@ class WebScrapingService {
         
         console.log(`✅ Successfully fetched HTML (${html.length} characters) in ${duration}ms`);
         console.log(`📊 Response analysis: ${this._analyzeResponse(html)}`);
+        
+        // Log HTML content for debugging in GitHub Actions
+        if (process.env.GITHUB_ACTIONS === 'true') {
+          console.log(`📄 HTML Content (first 500 chars): ${html.substring(0, 500)}`);
+          if (html.length < 1000) {
+            console.log(`📄 Full HTML Content: ${html}`);
+          }
+        }
+        
         return html;
         
       } catch (error) {
@@ -116,12 +125,14 @@ class WebScrapingService {
     console.log(`🔄 Starting alternative fetch methods for GitHub Actions`);
     console.log(`🔧 Target URL: ${url}`);
     
-    // Try multiple proxy services
+    // Try multiple proxy services and alternative approaches
     const proxies = [
       null, // Direct connection first
-      'https://cors-anywhere.herokuapp.com/',
       'https://api.allorigins.win/raw?url=',
-      'https://thingproxy.freeboard.io/fetch/'
+      'https://thingproxy.freeboard.io/fetch/',
+      'https://cors-anywhere.herokuapp.com/',
+      'https://api.codetabs.com/v1/proxy?quest=',
+      'https://corsproxy.io/?'
     ];
     
     for (let i = 0; i < proxies.length; i++) {
@@ -137,6 +148,15 @@ class WebScrapingService {
         
         console.log(`✅ Success with method ${i + 1} (${proxy || 'Direct'}): ${result.length} chars in ${duration}ms`);
         console.log(`📊 Response analysis: ${this._analyzeResponse(result)}`);
+        
+        // Log HTML content for debugging in GitHub Actions
+        if (process.env.GITHUB_ACTIONS === 'true') {
+          console.log(`📄 HTML Content (first 500 chars): ${result.substring(0, 500)}`);
+          if (result.length < 1000) {
+            console.log(`📄 Full HTML Content: ${result}`);
+          }
+        }
+        
         return result;
       } catch (error) {
         console.log(`❌ Method ${i + 1} failed (${proxy || 'Direct'}): ${error.message}`);
@@ -220,12 +240,14 @@ class WebScrapingService {
           'Cache-Control': 'no-cache',
           'Pragma': 'no-cache'
         },
-        timeout: isGitHubActions ? 15000 : 30000, // Shorter timeout for GitHub Actions
+        timeout: isGitHubActions ? 30000 : 30000, // Longer timeout for GitHub Actions
         // Add additional options for GitHub Actions
         ...(isGitHubActions && {
           agent: false, // Disable connection pooling
           family: 4, // Force IPv4
-          lookup: undefined // Use default DNS
+          lookup: undefined, // Use default DNS
+          keepAlive: false, // Disable keep-alive
+          keepAliveMsecs: 0 // Disable keep-alive timing
         })
       };
       
@@ -260,6 +282,7 @@ class WebScrapingService {
       });
       
       req.setTimeout(options.timeout, () => {
+        console.log(`⏰ Request timeout after ${options.timeout}ms for ${url}`);
         req.destroy();
         reject(new Error('Request timeout'));
       });

@@ -14,11 +14,41 @@ class WebScrapingService {
   }
 
   /**
-   * Fetch HTML content from URL
+   * Fetch HTML content from URL with retry logic
+   * @param {string} url - URL to fetch
+   * @param {number} retries - Number of retry attempts
+   * @returns {Promise<string>} HTML content
+   */
+  async fetchHTML(url, retries = 3) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        console.log(`🔍 Attempt ${attempt}/${retries} - Fetching: ${url}`);
+        
+        const html = await this._fetchHTMLSingle(url);
+        console.log(`✅ Successfully fetched HTML (${html.length} characters)`);
+        return html;
+        
+      } catch (error) {
+        console.log(`⚠️ Attempt ${attempt} failed: ${error.message}`);
+        
+        if (attempt === retries) {
+          throw new Error(`Failed to fetch after ${retries} attempts. Last error: ${error.message}`);
+        }
+        
+        // Wait before retry (exponential backoff)
+        const waitTime = Math.pow(2, attempt) * 1000;
+        console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+  }
+
+  /**
+   * Single fetch attempt
    * @param {string} url - URL to fetch
    * @returns {Promise<string>} HTML content
    */
-  async fetchHTML(url) {
+  async _fetchHTMLSingle(url) {
     return new Promise((resolve, reject) => {
       const protocol = url.startsWith('https:') ? https : http;
       
@@ -29,7 +59,8 @@ class WebScrapingService {
           'Accept-Language': 'en-US,en;q=0.5',
           'Accept-Encoding': 'gzip, deflate',
           'Connection': 'keep-alive',
-        }
+        },
+        timeout: 15000 // Reduced timeout for faster retries
       };
       
       const req = protocol.get(url, options, (res) => {
@@ -62,7 +93,7 @@ class WebScrapingService {
         reject(error);
       });
       
-      req.setTimeout(30000, () => {
+      req.setTimeout(15000, () => {
         req.destroy();
         reject(new Error('Request timeout'));
       });
@@ -205,25 +236,50 @@ async function scrapeTable() {
   console.log("🌐 Starting FA Full Time scraping...");
   
   const scraper = new WebScrapingService();
-  const url = "https://fulltime.thefa.com/index.html?divisionseason=311980811";
   const season = "2024-25";
   const team = "Dorkinians";
   
-  try {
-    const result = await scraper.scrapeFALeagueTable(url, season, team, 1);
-    
-    if (result && result.STANDINGS) {
-      const standings = JSON.parse(result.STANDINGS);
-      console.log(`📊 Found ${standings.length} teams in league table`);
-      return standings;
-    } else {
-      console.log("❌ No league table data found");
-      return [];
+  // Primary URL
+  const primaryUrl = "https://fulltime.thefa.com/index.html?divisionseason=311980811";
+  
+  // Fallback URLs (if primary fails)
+  const fallbackUrls = [
+    "https://fulltime.thefa.com/index.html?divisionseason=311980811",
+    // Add more fallback URLs if needed
+  ];
+  
+  const urls = [primaryUrl, ...fallbackUrls];
+  
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    try {
+      console.log(`🔍 Trying URL ${i + 1}/${urls.length}: ${url}`);
+      const result = await scraper.scrapeFALeagueTable(url, season, team, 1);
+      
+      if (result && result.STANDINGS) {
+        const standings = JSON.parse(result.STANDINGS);
+        console.log(`📊 Found ${standings.length} teams in league table`);
+        return standings;
+      } else {
+        console.log("❌ No league table data found in this URL");
+        if (i < urls.length - 1) {
+          console.log("🔄 Trying next URL...");
+          continue;
+        }
+      }
+    } catch (error) {
+      console.error(`❌ URL ${i + 1} failed:`, error.message);
+      if (i < urls.length - 1) {
+        console.log("🔄 Trying next URL...");
+        continue;
+      } else {
+        throw error;
+      }
     }
-  } catch (error) {
-    console.error("❌ Scraping failed:", error.message);
-    throw error;
   }
+  
+  console.log("❌ All URLs failed - no league table data found");
+  return [];
 }
 
 async function uploadToSheet(tableData) {
@@ -301,6 +357,18 @@ async function runScraper() {
     
   } catch (error) {
     console.error("❌ Scraper failed:", error.message);
+    
+    // Log additional error details for debugging
+    if (error.code) {
+      console.error(`Error code: ${error.code}`);
+    }
+    if (error.syscall) {
+      console.error(`System call: ${error.syscall}`);
+    }
+    if (error.address) {
+      console.error(`Address: ${error.address}:${error.port || 'unknown'}`);
+    }
+    
     throw error;
   }
 }

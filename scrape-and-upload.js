@@ -6,6 +6,7 @@ const { JSDOM } = require('jsdom');
 const puppeteer = require('puppeteer');
 const { JWT } = require('google-auth-library');
 const { google } = require('googleapis');
+const crypto = require('crypto');
 
 // Load environment variables
 require('dotenv').config();
@@ -632,41 +633,114 @@ async function uploadToSheet(tableData) {
   if (privateKey) {
     // Replace escaped newlines
     privateKey = privateKey.replace(/\\n/g, '\n');
-    // Ensure proper PEM format with correct headers
-    if (!privateKey.includes('-----BEGIN')) {
-      privateKey = `-----BEGIN PRIVATE KEY-----\n${privateKey}\n-----END PRIVATE KEY-----`;
+    
+    // Remove any existing headers and ensure clean format
+    privateKey = privateKey.replace(/-----BEGIN.*?-----\n?/g, '');
+    privateKey = privateKey.replace(/-----END.*?-----\n?/g, '');
+    privateKey = privateKey.replace(/\n/g, '');
+    
+    // Re-add proper headers with correct line breaks
+    const lines = [];
+    for (let i = 0; i < privateKey.length; i += 64) {
+      lines.push(privateKey.substring(i, i + 64));
     }
+    privateKey = `-----BEGIN PRIVATE KEY-----\n${lines.join('\n')}\n-----END PRIVATE KEY-----`;
+    
+    console.log(`🔐 Reformatted private key (${privateKey.length} chars)`);
   }
   
   console.log(`🔐 Private key format check: ${privateKey ? 'Present' : 'Missing'}`);
   console.log(`🔐 Key starts with: ${privateKey ? privateKey.substring(0, 30) + '...' : 'N/A'}`);
   
-  // Try using googleapis library instead of google-auth-library
-  let auth;
+  // Try a completely different approach - use raw fetch with manual JWT
+  console.log(`🔐 Attempting manual JWT authentication to bypass OpenSSL issues...`);
+  
+  const startAuthTime = Date.now();
+  let accessToken;
   try {
-    console.log(`🔐 Attempting authentication with googleapis library...`);
-    auth = new google.auth.JWT(
-      process.env.GOOGLE_CLIENT_EMAIL,
-      null,
-      privateKey,
-      ['https://www.googleapis.com/auth/spreadsheets']
-    );
-  } catch (error) {
-    console.log(`⚠️  googleapis JWT failed, trying google-auth-library...`);
-    console.log(`🔍 Error: ${error.message}`);
+    // Create JWT manually to avoid OpenSSL issues
+    const now = Math.floor(Date.now() / 1000);
+    const header = {
+      alg: 'RS256',
+      typ: 'JWT'
+    };
     
-    // Fallback to google-auth-library
-    auth = new JWT({
-      email: process.env.GOOGLE_CLIENT_EMAIL,
-      key: privateKey,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    const payload = {
+      iss: process.env.GOOGLE_CLIENT_EMAIL,
+      scope: 'https://www.googleapis.com/auth/spreadsheets',
+      aud: 'https://oauth2.googleapis.com/token',
+      iat: now,
+      exp: now + 3600
+    };
+    
+    // Create JWT manually
+    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signatureInput = `${encodedHeader}.${encodedPayload}`;
+    
+    // Use Node.js crypto module instead of the problematic libraries
+    const sign = crypto.createSign('RSA-SHA256');
+    sign.update(signatureInput);
+    
+    // Clean the private key for crypto module
+    const cleanPrivateKey = privateKey
+      .replace(/-----BEGIN PRIVATE KEY-----/, '')
+      .replace(/-----END PRIVATE KEY-----/, '')
+      .replace(/\n/g, '');
+    
+    const keyBuffer = Buffer.from(cleanPrivateKey, 'base64');
+    const signature = sign.sign(keyBuffer, 'base64url');
+    
+    const jwt = `${signatureInput}.${signature}`;
+    
+    console.log(`🔐 JWT created successfully (${jwt.length} chars)`);
+    
+    // Exchange JWT for access token
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: jwt
+      })
     });
+    
+    const tokenData = await tokenResponse.json();
+    
+    if (!tokenResponse.ok) {
+      throw new Error(`Token exchange failed: ${tokenData.error} - ${tokenData.error_description}`);
+    }
+    
+    accessToken = {
+      token: tokenData.access_token,
+      token_type: tokenData.token_type,
+      expiry_date: Date.now() + (tokenData.expires_in * 1000)
+    };
+    
+    console.log(`✅ Manual JWT authentication successful`);
+    
+  } catch (manualError) {
+    console.log(`⚠️  Manual JWT failed, trying googleapis library...`);
+    console.log(`🔍 Manual Error: ${manualError.message}`);
+    
+    // Fallback to googleapis
+    let auth;
+    try {
+      auth = new google.auth.JWT(
+        process.env.GOOGLE_CLIENT_EMAIL,
+        null,
+        privateKey,
+        ['https://www.googleapis.com/auth/spreadsheets']
+      );
+      accessToken = await auth.getAccessToken();
+    } catch (fallbackError) {
+      console.log(`⚠️  All authentication methods failed`);
+      throw new Error(`Authentication failed: ${fallbackError.message}`);
+    }
   }
 
-  // Get access token
-  console.log(`🔐 Requesting access token...`);
-  const startAuthTime = Date.now();
-  const accessToken = await auth.getAccessToken();
   const authDuration = Date.now() - startAuthTime;
   console.log(`✅ Authentication successful in ${authDuration}ms`);
   console.log(`🔐 Token type: ${accessToken.token_type}, expires: ${accessToken.expiry_date}`);

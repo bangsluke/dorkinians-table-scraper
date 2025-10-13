@@ -11,12 +11,14 @@ require('dotenv').config();
 
 class WebScrapingService {
   constructor() {
+    // More realistic UK-based user agents to avoid detection
     this.userAgents = [
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0'
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15'
     ];
     this.currentUserAgentIndex = 0;
   }
@@ -39,6 +41,13 @@ class WebScrapingService {
     console.log(`🌐 Starting fetch process for: ${url}`);
     console.log(`🔧 Environment: GitHub Actions=${process.env.GITHUB_ACTIONS === 'true'}, Node=${process.version}, Platform=${process.platform}`);
     console.log(`🔧 Available memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB used, ${Math.round(process.memoryUsage().heapTotal / 1024 / 1024)}MB total`);
+    
+    // Add random delay before first request to appear more human-like
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      const randomDelay = Math.random() * 5000 + 2000; // 2-7 seconds
+      console.log(`⏳ Adding random delay of ${Math.round(randomDelay)}ms to appear more human-like...`);
+      await new Promise(resolve => setTimeout(resolve, randomDelay));
+    }
     
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
@@ -156,8 +165,16 @@ class WebScrapingService {
       // Set user agent
       await page.setUserAgent(this.getCurrentUserAgent());
       
-      // Set viewport
-      await page.setViewport({ width: 1920, height: 1080 });
+      // Set viewport to common resolution
+      await page.setViewport({ width: 1366, height: 768 });
+      
+      // Set extra headers to appear more human-like
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-GB,en;q=0.9,en-US;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Upgrade-Insecure-Requests': '1'
+      });
       
       console.log(`📄 Navigating to: ${url}`);
       const startTime = Date.now();
@@ -168,9 +185,21 @@ class WebScrapingService {
         timeout: 60000 // 60 second timeout
       });
       
-      // Wait additional time for dynamic content
+      // Wait additional time for dynamic content with human-like behavior
       console.log(`⏳ Waiting for dynamic content to load...`);
       await page.waitForTimeout(7000); // Wait 7 seconds as you mentioned
+      
+      // Simulate human-like behavior - scroll a bit
+      await page.evaluate(() => {
+        window.scrollTo(0, 100);
+      });
+      await page.waitForTimeout(1000);
+      
+      // Scroll back up
+      await page.evaluate(() => {
+        window.scrollTo(0, 0);
+      });
+      await page.waitForTimeout(1000);
       
       // Get the page content
       const html = await page.content();
@@ -317,12 +346,17 @@ class WebScrapingService {
       const options = {
         headers: {
           'User-Agent': this.getCurrentUserAgent(),
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+          'Accept-Language': 'en-GB,en;q=0.9,en-US;q=0.8',
           'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': isGitHubActions ? 'close' : 'keep-alive', // Use close for GitHub Actions
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
+          'Connection': isGitHubActions ? 'close' : 'keep-alive',
+          'Cache-Control': 'max-age=0',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1',
+          'DNT': '1'
         },
         timeout: isGitHubActions ? 30000 : 30000, // Longer timeout for GitHub Actions
         // Add additional options for GitHub Actions

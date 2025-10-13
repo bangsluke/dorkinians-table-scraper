@@ -2,26 +2,38 @@ name: Dorkinians Table Scraper
 
 on:
   schedule:
-    - cron: '0 5 * * *'  # Daily at 5 AM UTC
+    - cron: '0 6 * * *'  # Daily at 6 AM UTC (7 AM UK time)
   workflow_dispatch:  # Allow manual runs
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
       
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+      
+      - name: Debug environment
+        run: |
+          echo "Node version: $(node --version)"
+          echo "NPM version: $(npm --version)"
+          echo "Working directory: $(pwd)"
+          echo "Files in directory:"
+          ls -la
+          echo "Package.json exists: $(test -f package.json && echo 'Yes' || echo 'No')"
       
       - name: Run scraper
-        run: node github-actions-runner.js
+        run: node scrape-and-upload.js
         env:
           GOOGLE_CLIENT_EMAIL: ${{ secrets.GOOGLE_CLIENT_EMAIL }}
           GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}

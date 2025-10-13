@@ -625,9 +625,21 @@ async function uploadToSheet(tableData) {
 
   // Use service account credentials with JWT
   console.log(`🔐 Initializing Google Sheets authentication...`);
+  
+  // Fix private key format for Node.js OpenSSL compatibility
+  let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+  if (privateKey) {
+    // Replace escaped newlines
+    privateKey = privateKey.replace(/\\n/g, '\n');
+    // Ensure proper PEM format
+    if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
+      privateKey = `-----BEGIN PRIVATE KEY-----\n${privateKey}\n-----END PRIVATE KEY-----`;
+    }
+  }
+  
   const auth = new JWT({
     email: process.env.GOOGLE_CLIENT_EMAIL,
-    key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    key: privateKey,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
 

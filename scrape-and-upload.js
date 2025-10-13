@@ -5,6 +5,7 @@ const zlib = require('zlib');
 const { JSDOM } = require('jsdom');
 const puppeteer = require('puppeteer');
 const { JWT } = require('google-auth-library');
+const { google } = require('googleapis');
 
 // Load environment variables
 require('dotenv').config();
@@ -623,7 +624,7 @@ async function uploadToSheet(tableData) {
     throw new Error("Missing required environment variables");
   }
 
-  // Use service account credentials with JWT
+  // Use service account credentials with googleapis library
   console.log(`🔐 Initializing Google Sheets authentication...`);
   
   // Fix private key format for Node.js OpenSSL compatibility
@@ -631,17 +632,36 @@ async function uploadToSheet(tableData) {
   if (privateKey) {
     // Replace escaped newlines
     privateKey = privateKey.replace(/\\n/g, '\n');
-    // Ensure proper PEM format
-    if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
+    // Ensure proper PEM format with correct headers
+    if (!privateKey.includes('-----BEGIN')) {
       privateKey = `-----BEGIN PRIVATE KEY-----\n${privateKey}\n-----END PRIVATE KEY-----`;
     }
   }
   
-  const auth = new JWT({
-    email: process.env.GOOGLE_CLIENT_EMAIL,
-    key: privateKey,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
+  console.log(`🔐 Private key format check: ${privateKey ? 'Present' : 'Missing'}`);
+  console.log(`🔐 Key starts with: ${privateKey ? privateKey.substring(0, 30) + '...' : 'N/A'}`);
+  
+  // Try using googleapis library instead of google-auth-library
+  let auth;
+  try {
+    console.log(`🔐 Attempting authentication with googleapis library...`);
+    auth = new google.auth.JWT(
+      process.env.GOOGLE_CLIENT_EMAIL,
+      null,
+      privateKey,
+      ['https://www.googleapis.com/auth/spreadsheets']
+    );
+  } catch (error) {
+    console.log(`⚠️  googleapis JWT failed, trying google-auth-library...`);
+    console.log(`🔍 Error: ${error.message}`);
+    
+    // Fallback to google-auth-library
+    auth = new JWT({
+      email: process.env.GOOGLE_CLIENT_EMAIL,
+      key: privateKey,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+  }
 
   // Get access token
   console.log(`🔐 Requesting access token...`);
